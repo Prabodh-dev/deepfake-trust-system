@@ -62,3 +62,26 @@ def clear_history():
     c.execute('DELETE FROM analyses')
     conn.commit()
     conn.close()
+
+def get_stats():
+    conn = sqlite3.connect(config.DATABASE_PATH)
+    c = conn.cursor()
+    c.execute('SELECT COUNT(*) FROM analyses')
+    total = c.fetchone()[0]
+    c.execute('SELECT COUNT(*) FROM analyses WHERE risk_level = "High"')
+    high_risk = c.fetchone()[0]
+    c.execute('SELECT COUNT(*) FROM analyses WHERE risk_level = "Medium"')
+    medium_risk = c.fetchone()[0]
+    c.execute('SELECT COUNT(*) FROM analyses WHERE risk_level = "Low"')
+    low_risk = c.fetchone()[0]
+    c.execute('SELECT AVG(trust_score) FROM analyses')
+    avg_score = c.fetchone()[0]
+    conn.close()
+    return {
+        "total_analyses": total,
+        "high_risk": high_risk,
+        "medium_risk": medium_risk,
+        "low_risk": low_risk,
+        "average_trust_score": round(avg_score, 1) if avg_score else 0
+    }
+

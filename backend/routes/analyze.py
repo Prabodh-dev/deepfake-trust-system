@@ -3,7 +3,7 @@ import os, uuid
 from datetime import datetime, timezone
 import backend.config as config
 from backend.utils.scoring import calculate_trust_score
-from backend.db.database import save_analysis, get_history, get_report, clear_history
+from backend.db.database import save_analysis, get_history, get_report, clear_history, get_stats
 from backend.utils.video_detector import detect_video
 from backend.utils.audio_detector import analyze_audio
 from backend.utils.metadata_extractor import extract_metadata
@@ -157,3 +157,8 @@ def analyze_batch():
                 os.remove(filepath)
 
     return jsonify({"total": len(results), "results": results}), 200
+
+@analyze_bp.route('/stats', methods=['GET'])
+def stats():
+    print(f"[STATS] Request received")
+    return jsonify(get_stats()), 200
