@@ -58,7 +58,9 @@ def analyze_audio(filepath: str) -> dict:
                 stderr=subprocess.PIPE,
             )
             if result.returncode != 0:
-                return _FALLBACK
+                raise RuntimeError(
+                    f"FFmpeg failed: {result.stderr.decode(errors='replace')}"
+                )
             load_path = tmp_wav
         else:
             load_path = filepath
