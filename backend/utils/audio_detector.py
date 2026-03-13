@@ -57,6 +57,127 @@ def detect_gan_artifacts(y: np.ndarray, sr: int) -> float:
     return max(0.0, min(gan_score, 1.0))
 
 
+def detect_tts_artifacts(y: np.ndarray, sr: int) -> float:
+    """
+    Detect fully TTS-synthesised audio (ElevenLabs, Bark, XTTS, etc.)
+    by checking three patterns that TTS models always leave behind.
+
+    Unlike GAN voice cloning (which manipulates a real voice), TTS generates
+    speech from scratch — no real human voice is involved at all. This
+    produces different and more extreme artefacts.
+
+    Pattern 1 — Unnatural silence gaps
+        Real speech has micro-pauses filled with breath noise and room tone.
+        TTS goes completely silent between words/sentences and the gaps are
+        suspiciously regular in length. Detected by measuring RMS energy per
+        frame and counting frames that fall below a silence threshold.
+
+    Pattern 2 — Pitch variance too low
+        Real speakers drift in pitch naturally (vibrato, stress, emotion).
+        TTS keeps pitch unnaturally flat and controlled. Detected via
+        librosa.pyin which extracts the fundamental frequency (F0) over time.
+        Low std dev of voiced F0 values = TTS-like.
+
+    Pattern 3 — Energy envelope too regular
+        Real speech energy fluctuates dramatically (loud vowels, quiet
+        consonants, breath peaks). TTS compresses this dynamic range,
+        producing a suspiciously even energy envelope. Detected by measuring
+        the coefficient of variation (std/mean) of the RMS energy envelope.
+
+    Parameters
+    ----------
+    y  : np.ndarray  raw audio samples at *sr* Hz
+    sr : int         sample rate (expected: 16 000 Hz)
+
+    Returns
+    -------
+    float [0.0, 1.0] — higher = more likely fully TTS-synthesised
+    """
+
+    # ── Pattern 1: Unnatural silence gaps ────────────────────────────── #
+    # Compute RMS energy per frame. Count frames below silence threshold.
+    # TTS silence frames are perfectly zero; real silence has background noise.
+    frame_length = 512
+    hop_length   = 160
+
+    rms = librosa.feature.rms(y=y, frame_length=frame_length, hop_length=hop_length)[0]
+
+    SILENCE_THRESHOLD = 0.01   # frames below this are "silent"
+    total_frames   = len(rms)
+    silent_frames  = int(np.sum(rms < SILENCE_THRESHOLD))
+    silence_ratio  = silent_frames / total_frames if total_frames > 0 else 0.0
+
+    # High silence ratio alone isn't suspicious — check regularity too.
+    # Find lengths of consecutive silent runs; low variance = unnaturally regular.
+    is_silent = rms < SILENCE_THRESHOLD
+    silent_run_lengths = []
+    run = 0
+    for s in is_silent:
+        if s:
+            run += 1
+        elif run > 0:
+            silent_run_lengths.append(run)
+            run = 0
+    if run > 0:
+        silent_run_lengths.append(run)
+
+    if len(silent_run_lengths) > 1:
+        run_std  = float(np.std(silent_run_lengths))
+        run_mean = float(np.mean(silent_run_lengths))
+        # Low coefficient of variation = gaps are unnaturally equal in length
+        cv = run_std / (run_mean + 1e-6)
+        regularity_sub = float(np.clip(1.0 - cv, 0.0, 1.0))
+    else:
+        regularity_sub = 0.0
+
+    # Combine: suspicious if BOTH silence ratio is high AND gaps are regular
+    silence_sub = float(np.clip(silence_ratio * 2.0, 0.0, 1.0))  # normalise 50% → 1.0
+    gap_score   = 0.50 * silence_sub + 0.50 * regularity_sub
+
+    # ── Pattern 2: Pitch variance too low ────────────────────────────── #
+    # librosa.pyin returns F0 estimates and a voiced flag per frame.
+    # Only use voiced frames — unvoiced frames have no pitch by definition.
+    try:
+        f0, voiced_flag, _ = librosa.pyin(
+            y,
+            fmin=librosa.note_to_hz('C2'),   # ~65 Hz  — below any human voice
+            fmax=librosa.note_to_hz('C7'),   # ~2093 Hz — above any human voice
+            sr=sr,
+        )
+        voiced_f0 = f0[voiced_flag == 1.0]
+
+        if len(voiced_f0) > 10:
+            pitch_std = float(np.std(voiced_f0))
+            # Real speakers: std > 20 Hz typical. TTS: often < 5 Hz.
+            PITCH_STD_THRESHOLD = 20.0
+            pitch_sub = float(np.clip(1.0 - (pitch_std / PITCH_STD_THRESHOLD), 0.0, 1.0))
+        else:
+            pitch_sub = 0.0   # not enough voiced frames to judge
+    except Exception:
+        pitch_sub = 0.0       # pyin can fail on very short clips
+
+    # ── Pattern 3: Energy envelope too regular ───────────────────────── #
+    # Coefficient of variation of RMS energy. Real speech: CV > 1.0.
+    # TTS compresses dynamic range: CV < 0.5 is suspicious.
+    mean_rms = float(np.mean(rms))
+    std_rms  = float(np.std(rms))
+    cv_rms   = std_rms / (mean_rms + 1e-6)
+
+    CV_THRESHOLD = 1.0   # below this = unnaturally even
+    energy_sub = float(np.clip(1.0 - (cv_rms / CV_THRESHOLD), 0.0, 1.0))
+
+    # ── Weighted combination ──────────────────────────────────────────── #
+    # Pitch variance is the most reliable single TTS indicator (0.40).
+    # Energy regularity is second (0.35).
+    # Silence gap pattern is weakest alone but corroborates (0.25).
+    tts_score = (
+        0.40 * pitch_sub  +
+        0.35 * energy_sub +
+        0.25 * gap_score
+    )
+    return round(float(np.clip(tts_score, 0.0, 1.0)), 4)
+
+
 def _get_compression_chain(filepath: str) -> int:
     """
     Use ffprobe to count how many times the audio codec changed in the
@@ -128,21 +249,23 @@ def analyze_audio(filepath: str) -> dict:
 
     Scoring weights
     ---------------
-        0.30  spectral_flatness  — strongest GAN indicator; vocoders blur
-                                   harmonic energy, pushing flatness above 0.4
+        0.25  spectral_flatness  — GAN indicator; vocoders blur harmonic
+                                   energy, pushing flatness above 0.4
         0.25  mfcc_sub          — synthetic voices reuse learned embeddings,
                                    giving unnaturally low MFCC variance
         0.25  gan_score         — rolloff variance (flat in GAN) +
                                    spectral contrast (compressed in GAN)
-        0.10  zcr_sub           — GAN models under-produce stop-consonant
-                                   voiced/unvoiced transitions
-        0.10  compression_sub   — multiple codec changes indicate re-processing
+        0.20  tts_score         — pitch variance, energy regularity, and
+                                   silence gap patterns specific to TTS
+        0.10  zcr_sub           — voiced/unvoiced transition dynamics
+        0.05  compression_sub   — codec re-encode history
     """
     _FALLBACK = {
         "score": 0.5,
         "mfcc_anomaly": False,
         "spectral_flatness": 0.0,
         "gan_score": 0.0,
+        "tts_score": 0.0,
         "compression_chain": 0,
         "label": "uncertain",
     }
@@ -177,20 +300,22 @@ def analyze_audio(filepath: str) -> dict:
                     if "does not contain any stream" in stderr_output or \
                        "Output file does not contain any stream" in stderr_output:
                         return {
-                            "score": 0.5,
+                            "score": 0.1,
                             "mfcc_anomaly": False,
                             "spectral_flatness": 0.0,
                             "gan_score": 0.0,
+                            "tts_score": 0.0,
                             "compression_chain": 0,
                             "label": "No audio stream found",
                         }
                     raise RuntimeError(f"FFmpeg failed: {stderr_output}")
             except FileNotFoundError:
                 return {
-                    "score": 0.5,
+                    "score": 0.1,
                     "mfcc_anomaly": False,
                     "spectral_flatness": 0.0,
                     "gan_score": 0.0,
+                    "tts_score": 0.0,
                     "compression_chain": 0,
                     "label": "No audio stream found",
                 }
@@ -252,20 +377,30 @@ def analyze_audio(filepath: str) -> dict:
         gan_score = detect_gan_artifacts(y, sr)
 
         # ------------------------------------------------------------------ #
-        # 7. Compression chain detection                                      #
+        # 7. TTS artifact detection                                           #
+        # Pitch variance, energy regularity, silence gap patterns.           #
+        # Catches ElevenLabs, Bark, XTTS — no real voice involved at all.   #
+        # ------------------------------------------------------------------ #
+        tts_score = detect_tts_artifacts(y, sr)
+
+        # ------------------------------------------------------------------ #
+        # 8. Compression chain detection                                      #
         # ------------------------------------------------------------------ #
         compression_chain = _get_compression_chain(filepath)
         compression_sub = float(np.clip(compression_chain / 3.0, 0.0, 1.0))
 
         # ------------------------------------------------------------------ #
-        # 8. Composite anomaly score                                          #
+        # 9. Composite anomaly score                                          #
+        # flatness  0.30 → 0.25  (TTS score added, rebalanced)               #
+        # compression 0.10 → 0.05  (less discriminative than TTS/GAN)        #
         # ------------------------------------------------------------------ #
         score = float(
-            0.30 * flatness_sub +
+            0.25 * flatness_sub +
             0.25 * mfcc_sub +
             0.25 * gan_score +
+            0.20 * tts_score +
             0.10 * zcr_sub +
-            0.10 * compression_sub
+            0.05 * compression_sub
         )
         score = round(min(max(score, 0.0), 1.0), 4)
 
@@ -284,6 +419,7 @@ def analyze_audio(filepath: str) -> dict:
             "mfcc_anomaly": mfcc_anomaly,
             "spectral_flatness": round(mean_flatness, 6),
             "gan_score": gan_score,
+            "tts_score": tts_score,
             "compression_chain": compression_chain,
             "label": label,
         }
