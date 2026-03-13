@@ -5,47 +5,43 @@ import numpy as np
 import librosa
 import soundfile as sf
 
-import os
-os.environ["PATH"] += r";C:\ffmpeg\bin"
-os.environ["PATH"] += r";C:\Windows\exiftool-13.52_64"
-
-
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 
+_FALLBACK = {
+    "score": 0.5,
+    "mfcc_anomaly": False,
+    "spectral_flatness": 0.0,
+    "label": "uncertain",
+}
+
+def has_audio_stream(filepath: str) -> bool:
+    """Check if the file has an audio stream using ffprobe."""
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-select_streams", "a",
+        "-show_entries", "stream=codec_type",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        filepath
+    ]
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return b"audio" in result.stdout
 
 def analyze_audio(filepath: str) -> dict:
-    """
-    Analyse an audio (or video) file for AI-synthesis anomalies.
-
-    Parameters
-    ----------
-    filepath : str
-        Path to an audio or video file.
-
-    Returns
-    -------
-    dict with keys:
-        score            – float [0, 1]  (higher = more suspicious)
-        mfcc_anomaly     – bool          (True if MFCC variance looks synthetic)
-        spectral_flatness– float         (mean spectral flatness across the clip)
-        label            – str           ('likely_real' | 'uncertain' | 'likely_synthetic')
-    """
-    _FALLBACK = {
-        "score": 0.5,
-        "mfcc_anomaly": False,
-        "spectral_flatness": 0.0,
-        "label": "uncertain",
-    }
-
-    tmp_wav = None  # track temp file so we can clean up
+    tmp_wav = None
 
     try:
         ext = os.path.splitext(filepath)[1].lower()
 
-        # ------------------------------------------------------------------ #
-        # 1. Extract audio from video if necessary                            #
-        # ------------------------------------------------------------------ #
         if ext in VIDEO_EXTENSIONS:
+            # Check if video has audio stream first
+            if not has_audio_stream(filepath):
+                return {
+                    "score": 0.5,
+                    "mfcc_anomaly": False,
+                    "spectral_flatness": 0.0,
+                    "label": "No audio stream found",
+                }
+
             tmp_fd, tmp_wav = tempfile.mkstemp(suffix=".wav")
             os.close(tmp_fd)
 
@@ -62,64 +58,37 @@ def analyze_audio(filepath: str) -> dict:
                 stderr=subprocess.PIPE,
             )
             if result.returncode != 0:
-                raise RuntimeError(
-                    f"FFmpeg failed: {result.stderr.decode(errors='replace')}"
-                )
+                return _FALLBACK
             load_path = tmp_wav
         else:
             load_path = filepath
 
-        # ------------------------------------------------------------------ #
-        # 2. Load audio at 16 kHz, mono                                       #
-        # ------------------------------------------------------------------ #
         try:
             y, sr = librosa.load(load_path, sr=16000, mono=True)
-        except Exception as exc:
-            raise sf.SoundFileError(str(exc)) from exc
+        except Exception:
+            return _FALLBACK
 
         if len(y) == 0:
-            raise sf.SoundFileError("Audio signal is empty after loading.")
+            return _FALLBACK
 
-        # ------------------------------------------------------------------ #
-        # 3. MFCC features                                                    #
-        # ------------------------------------------------------------------ #
-        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)   # (20, T)
-        mfcc_std_per_coeff = np.std(mfcc, axis=1)             # variance over time
+        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
+        mfcc_std_per_coeff = np.std(mfcc, axis=1)
         mean_mfcc_std = float(np.mean(mfcc_std_per_coeff))
 
-        # AI-synthesised speech tends to have very consistent (low-variance)
-        # MFCC trajectories.  Empirically, mean std < 4.0 is suspicious.
         MFCC_STD_THRESHOLD = 4.0
         mfcc_anomaly = mean_mfcc_std < MFCC_STD_THRESHOLD
-
-        # Normalise into a 0-1 sub-score (lower std → higher suspicion)
         mfcc_sub = float(np.clip(1.0 - (mean_mfcc_std / (MFCC_STD_THRESHOLD * 2)), 0.0, 1.0))
 
-        # ------------------------------------------------------------------ #
-        # 4. Spectral flatness                                                #
-        # ------------------------------------------------------------------ #
-        flatness = librosa.feature.spectral_flatness(y=y)     # (1, T)
+        flatness = librosa.feature.spectral_flatness(y=y)
         mean_flatness = float(np.mean(flatness))
-
-        # Values above 0.4 indicate noise-like / synthetic texture
         FLATNESS_THRESHOLD = 0.4
         flatness_sub = float(np.clip(mean_flatness / FLATNESS_THRESHOLD, 0.0, 1.0))
 
-        # ------------------------------------------------------------------ #
-        # 5. Zero-crossing rate                                               #
-        # ------------------------------------------------------------------ #
-        zcr = librosa.feature.zero_crossing_rate(y)           # (1, T)
+        zcr = librosa.feature.zero_crossing_rate(y)
         mean_zcr = float(np.mean(zcr))
-
-        # Very high ZCR (> 0.15) can indicate noise or artefacts
         ZCR_THRESHOLD = 0.15
         zcr_sub = float(np.clip(mean_zcr / ZCR_THRESHOLD, 0.0, 1.0))
 
-        # ------------------------------------------------------------------ #
-        # 6. Composite anomaly score                                          #
-        # ------------------------------------------------------------------ #
-        # Weighted combination – spectral flatness and MFCC variance carry
-        # most weight; ZCR is a softer signal.
         score = float(
             0.45 * flatness_sub +
             0.40 * mfcc_sub +
@@ -127,9 +96,6 @@ def analyze_audio(filepath: str) -> dict:
         )
         score = round(min(max(score, 0.0), 1.0), 4)
 
-        # ------------------------------------------------------------------ #
-        # 7. Human-readable label                                             #
-        # ------------------------------------------------------------------ #
         if score < 0.35:
             label = "likely_real"
         elif score < 0.65:
@@ -144,7 +110,7 @@ def analyze_audio(filepath: str) -> dict:
             "label": label,
         }
 
-    except sf.SoundFileError:
+    except Exception:
         return _FALLBACK
 
     finally:

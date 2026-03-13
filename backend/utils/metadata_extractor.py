@@ -1,6 +1,9 @@
 import json
 import subprocess
+import os
 
+os.environ["PATH"] += r";C:\Windows\exiftool"
+os.environ["PATH"] += r";C:\Windows\System32"
 
 # Fields whose absence strongly suggests a synthetic or re-processed file
 CRITICAL_FIELDS = ["CreateDate", "Make", "Model", "Software", "GPSInfo"]
