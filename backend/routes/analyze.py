@@ -6,7 +6,7 @@ from backend.utils.scoring import calculate_trust_score
 from backend.db.database import save_analysis, get_history, get_report, clear_history, get_stats
 from backend.utils.video_detector import detect_video
 from backend.utils.audio_detector import analyze_audio
-from backend.utils.metadata_extractor import extract_metadata, build_provenance_chain  # ← FIXED
+from backend.utils.metadata_extractor import extract_metadata, build_provenance_chain
 
 analyze_bp = Blueprint('analyze', __name__)
 
@@ -39,26 +39,33 @@ def analyze():
             "score": 0.5,
             "frames_analyzed": 0,
             "inconsistency_regions": False,
-            "label": "N/A - Audio file"
+            "label": "N/A - Audio file",
+            "ai_generated_score": 0.0
         }
 
         audio_result    = analyze_audio(filepath)
         metadata_result = extract_metadata(filepath)
-        try:                                                          # ← ADDED
+        try:
             metadata_result["provenance_chain"] = build_provenance_chain(filepath)
         except Exception:
             metadata_result["provenance_chain"] = []
 
         score_data = calculate_trust_score(video_result, audio_result, metadata_result)
 
+        # AI generated flag — defaults to 0.0 safely until P1/P2 push
+        ai_video_score  = video_result.get("ai_generated_score", 0.0)
+        tts_audio_score = audio_result.get("tts_score", 0.0)
+        ai_generated    = bool(ai_video_score > 0.6 or tts_audio_score > 0.6)
+
         analysis_id = str(uuid.uuid4())
         result = {
-            "id":          analysis_id,
-            "filename":    file.filename,
-            "file_type":   "video" if is_video(file.filename) else "audio",
-            "trust_score": score_data["trust_score"],
-            "risk_level":  score_data["risk_level"],
-            "explanation": score_data["explanation"],
+            "id":           analysis_id,
+            "filename":     file.filename,
+            "file_type":    "video" if is_video(file.filename) else "audio",
+            "trust_score":  score_data["trust_score"],
+            "risk_level":   score_data["risk_level"],
+            "explanation":  score_data["explanation"],
+            "ai_generated": ai_generated,
             "signals": {
                 "video":    video_result,
                 "audio":    audio_result,
@@ -75,8 +82,8 @@ def analyze():
                 result["signals"]["video"]["heatmap_url"] = f"/api/heatmap/{analysis_id}"
             del result["signals"]["video"]["heatmap_b64"]
 
-        print(f"[SENT] File: {file.filename} | Trust Score: {result['trust_score']} | Risk: {result['risk_level']}")
-        print(f"[SCORES] Video: {video_result['score']} | Audio: {audio_result['score']} | Metadata: {metadata_result['score']}")
+        print(f"[SENT] File: {file.filename} | Trust Score: {result['trust_score']} | Risk: {result['risk_level']} | AI Generated: {ai_generated}")
+        print(f"[SCORES] Video: {video_result['score']} | Audio: {audio_result['score']} | Metadata: {metadata_result['score']} | AI Video: {ai_video_score} | TTS: {tts_audio_score}")
         return jsonify(result), 200
 
     except Exception as e:
@@ -87,10 +94,12 @@ def analyze():
         if os.path.exists(filepath):
             os.remove(filepath)
 
+
 @analyze_bp.route('/history', methods=['GET'])
 def history():
     print(f"[HISTORY] Request received")
     return jsonify(get_history()), 200
+
 
 @analyze_bp.route('/report/<analysis_id>', methods=['GET'])
 def report(analysis_id):
@@ -100,11 +109,13 @@ def report(analysis_id):
         return jsonify({"error": "Report not found"}), 404
     return jsonify(data), 200
 
+
 @analyze_bp.route('/history/clear', methods=['DELETE'])
 def clear():
     print(f"[CLEAR] History cleared")
     clear_history()
     return jsonify({"cleared": True}), 200
+
 
 @analyze_bp.route('/analyze/batch', methods=['POST'])
 def analyze_batch():
@@ -134,25 +145,31 @@ def analyze_batch():
         try:
             video_result = detect_video(filepath) if is_video(file.filename) else {
                 "score": 0.5, "frames_analyzed": 0,
-                "inconsistency_regions": False, "label": "N/A - Audio file"
+                "inconsistency_regions": False, "label": "N/A - Audio file",
+                "ai_generated_score": 0.0
             }
             audio_result    = analyze_audio(filepath)
             metadata_result = extract_metadata(filepath)
-            try:                                                      # ← ADDED
+            try:
                 metadata_result["provenance_chain"] = build_provenance_chain(filepath)
             except Exception:
                 metadata_result["provenance_chain"] = []
 
             score_data = calculate_trust_score(video_result, audio_result, metadata_result)
 
+            ai_video_score  = video_result.get("ai_generated_score", 0.0)
+            tts_audio_score = audio_result.get("tts_score", 0.0)
+            ai_generated    = bool(ai_video_score > 0.6 or tts_audio_score > 0.6)
+
             analysis_id = str(uuid.uuid4())
             result = {
-                "id":          analysis_id,
-                "filename":    file.filename,
-                "file_type":   "video" if is_video(file.filename) else "audio",
-                "trust_score": score_data["trust_score"],
-                "risk_level":  score_data["risk_level"],
-                "explanation": score_data["explanation"],
+                "id":           analysis_id,
+                "filename":     file.filename,
+                "file_type":    "video" if is_video(file.filename) else "audio",
+                "trust_score":  score_data["trust_score"],
+                "risk_level":   score_data["risk_level"],
+                "explanation":  score_data["explanation"],
+                "ai_generated": ai_generated,
                 "signals": {
                     "video":    video_result,
                     "audio":    audio_result,
@@ -169,7 +186,7 @@ def analyze_batch():
                     result["signals"]["video"]["heatmap_url"] = f"/api/heatmap/{analysis_id}"
                 del result["signals"]["video"]["heatmap_b64"]
 
-            print(f"[BATCH] Done: {file.filename} | Score: {result['trust_score']} | Risk: {result['risk_level']}")
+            print(f"[BATCH] Done: {file.filename} | Score: {result['trust_score']} | Risk: {result['risk_level']} | AI Generated: {ai_generated}")
             results.append(result)
 
         except Exception as e:
@@ -182,10 +199,12 @@ def analyze_batch():
 
     return jsonify({"total": len(results), "results": results}), 200
 
+
 @analyze_bp.route('/stats', methods=['GET'])
 def stats():
     print(f"[STATS] Request received")
     return jsonify(get_stats()), 200
+
 
 @analyze_bp.route('/heatmap/<analysis_id>', methods=['GET'])
 def heatmap(analysis_id):
