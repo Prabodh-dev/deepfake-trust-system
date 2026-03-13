@@ -5,6 +5,8 @@ import backend.config as config
 from backend.utils.scoring import calculate_trust_score
 from backend.db.database import save_analysis, get_history, get_report, clear_history
 from backend.utils.video_detector import detect_video
+from backend.utils.audio_detector import analyze_audio
+from backend.utils.metadata_extractor import extract_metadata
 
 analyze_bp = Blueprint('analyze', __name__)
 
@@ -31,23 +33,15 @@ def analyze():
     file.save(filepath)
 
     try:
-        # ── STUBS (P1 and P2 replace these when they push) ──────────────
         video_result = detect_video(filepath) if is_video(file.filename) else {
-    "score": 0.5,
-    "frames_analyzed": 0,
-    "inconsistency_regions": False,
-    "label": "N/A - Audio file"
-}
-        audio_result = {
-            "score": 0.5, "mfcc_anomaly": False,
-            "spectral_flatness": 0.0, "label": "Pending — P2 not integrated yet"
+            "score": 0.5,
+            "frames_analyzed": 0,
+            "inconsistency_regions": False,
+            "label": "N/A - Audio file"
         }
-        metadata_result = {
-            "score": 0.5, "missing_fields": [],
-            "software_mismatch": False,
-            "compression_reencodes": 0, "label": "Pending — P2 not integrated yet"
-        }
-        # ── END STUBS ─────────────────────────────────────────────────────
+
+        audio_result    = analyze_audio(filepath)
+        metadata_result = extract_metadata(filepath)
 
         score_data = calculate_trust_score(video_result, audio_result, metadata_result)
 
