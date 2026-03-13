@@ -18,20 +18,17 @@ deepfake_detector = hf_pipeline(
 def detect_video(filepath: str) -> dict:
     cap = cv2.VideoCapture(filepath)
     if not cap.isOpened():
-        return {"score": 0.5, "frames_analyzed": 0, "inconsistency_regions": False, "label": "Could not open video", "no_face": True, "suspicious_timestamps": []}
+        return {"score": 0.5, "frames_analyzed": 0, "inconsistency_regions": False, "label": "Could not open video", "no_face": True}
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     if total_frames == 0:
-        return {"score": 0.5, "frames_analyzed": 0, "inconsistency_regions": False, "label": "Empty video", "no_face": True, "suspicious_timestamps": []}
-
-    fps = cap.get(cv2.CAP_PROP_FPS) or 25
+        return {"score": 0.5, "frames_analyzed": 0, "inconsistency_regions": False, "label": "Empty video", "no_face": True}
 
     start = int(total_frames * 0.20)
     end = int(total_frames * 0.80)
     indices = np.linspace(start, end, 30, dtype=int)
     scores = []
     faces_not_detected = 0
-    suspicious_timestamps = []
 
     for idx in indices:
         cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
@@ -47,12 +44,6 @@ def detect_video(filepath: str) -> dict:
             else:
                 fake_score = 1.0 - top["score"]
             scores.append(fake_score)
-
-            # Phase 3 — track suspicious timestamps
-            if fake_score > FAKE_THRESHOLD:
-                timestamp = float(round(idx / fps, 2))
-                suspicious_timestamps.append(timestamp)
-
         except Exception:
             faces_not_detected += 1
             continue
@@ -63,7 +54,7 @@ def detect_video(filepath: str) -> dict:
     no_face = faces_not_detected / max(len(indices), 1) > 0.8
 
     if len(scores) == 0:
-        return {"score": 0.5, "frames_analyzed": 0, "inconsistency_regions": False, "label": "No face detected", "no_face": True, "suspicious_timestamps": []}
+        return {"score": 0.5, "frames_analyzed": 0, "inconsistency_regions": False, "label": "No face detected", "no_face": True}
 
     avg_fake_prob = float(np.mean(scores))
 
@@ -81,6 +72,5 @@ def detect_video(filepath: str) -> dict:
         "frames_analyzed": len(scores),
         "inconsistency_regions": inconsistency_regions,
         "label": "Likely Deepfake" if avg_fake_prob >= FAKE_THRESHOLD else "Likely Real",
-        "no_face": no_face,
-        "suspicious_timestamps": suspicious_timestamps
+        "no_face": no_face
     }
