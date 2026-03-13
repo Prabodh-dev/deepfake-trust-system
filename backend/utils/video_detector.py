@@ -28,6 +28,7 @@ def detect_video(filepath: str) -> dict:
     end = int(total_frames * 0.80)
     indices = np.linspace(start, end, 30, dtype=int)
     scores = []
+    faces_not_detected = 0
 
     for idx in indices:
         cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
@@ -44,16 +45,20 @@ def detect_video(filepath: str) -> dict:
                 fake_score = 1.0 - top["score"]
             scores.append(fake_score)
         except Exception:
+            faces_not_detected += 1
             continue
 
     cap.release()
+
+    # Dynamic no_face check
+    no_face = faces_not_detected / max(len(indices), 1) > 0.8
 
     if len(scores) == 0:
         return {"score": 0.5, "frames_analyzed": 0, "inconsistency_regions": False, "label": "No face detected", "no_face": True}
 
     avg_fake_prob = float(np.mean(scores))
-    
-    # Temporal consistency check — high variance = unnatural face changes = deepfake
+
+    # Temporal consistency check
     score_variance = float(np.var(scores))
     inconsistency_regions = score_variance > 0.01 or sum(1 for s in scores if s > FAKE_THRESHOLD) / len(scores) > 0.4
 
@@ -67,5 +72,5 @@ def detect_video(filepath: str) -> dict:
         "frames_analyzed": len(scores),
         "inconsistency_regions": inconsistency_regions,
         "label": "Likely Deepfake" if avg_fake_prob >= FAKE_THRESHOLD else "Likely Real",
-        "no_face": False
+        "no_face": no_face
     }
