@@ -63,7 +63,14 @@ def analyze():
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
-        save_analysis(result)
+        save_analysis(result)  # Save FIRST — heatmap_b64 still in DB
+
+        # Then strip from response, only expose URL if High Risk
+        if result["signals"]["video"].get("heatmap_b64"):
+            if result["risk_level"] == "High":
+                result["signals"]["video"]["heatmap_url"] = f"/api/heatmap/{analysis_id}"
+            del result["signals"]["video"]["heatmap_b64"]
+
         print(f"[SENT] File: {file.filename} | Trust Score: {result['trust_score']} | Risk: {result['risk_level']}")
         print(f"[SCORES] Video: {video_result['score']} | Audio: {audio_result['score']} | Metadata: {metadata_result['score']}")
         return jsonify(result), 200
@@ -144,7 +151,15 @@ def analyze_batch():
                 },
                 "timestamp": datetime.now(timezone.utc).isoformat()
             }
-            save_analysis(result)
+
+            save_analysis(result)  # Save FIRST — heatmap_b64 still in DB
+
+            # Then strip from response, only expose URL if High Risk
+            if result["signals"]["video"].get("heatmap_b64"):
+                if result["risk_level"] == "High":
+                    result["signals"]["video"]["heatmap_url"] = f"/api/heatmap/{analysis_id}"
+                del result["signals"]["video"]["heatmap_b64"]
+
             print(f"[BATCH] Done: {file.filename} | Score: {result['trust_score']} | Risk: {result['risk_level']}")
             results.append(result)
 
@@ -162,3 +177,14 @@ def analyze_batch():
 def stats():
     print(f"[STATS] Request received")
     return jsonify(get_stats()), 200
+
+@analyze_bp.route('/heatmap/<analysis_id>', methods=['GET'])
+def heatmap(analysis_id):
+    print(f"[HEATMAP] Requested ID: {analysis_id}")
+    data = get_report(analysis_id)
+    if not data:
+        return jsonify({"error": "Not found"}), 404
+    heatmap_b64 = data.get("signals", {}).get("video", {}).get("heatmap_b64")
+    if not heatmap_b64:
+        return jsonify({"error": "No heatmap available for this analysis"}), 404
+    return jsonify({"heatmap_b64": heatmap_b64}), 200
