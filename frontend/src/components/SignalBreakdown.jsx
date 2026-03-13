@@ -1,179 +1,114 @@
-import { motion } from 'framer-motion'
-import { Film, Music, FileText, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react'
-import { useState } from 'react'
+import React from 'react';
+import { motion } from 'framer-motion';
 
 const SIGNAL_META = {
   video: {
-    label: 'Video Signal',
-    icon: Film,
-    color: '#a855f7',
-    glow: 'rgba(168,85,247,0.35)',
-    description: 'Facial geometry, blink patterns, boundary artifacts',
+    label: 'Video Matrix',
+    icon: 'videocam',
+    color: 'emerald',
+    description: 'Facial geometry and temporal stability'
   },
   audio: {
-    label: 'Audio Signal',
-    icon: Music,
-    color: '#00f5ff',
-    glow: 'rgba(0,245,255,0.35)',
-    description: 'Frequency spectrum, vocal fingerprint, background noise',
+    label: 'Acoustics',
+    icon: 'mic',
+    color: 'emerald',
+    description: 'Spectral fingerprint and noise floor'
   },
   metadata: {
-    label: 'Metadata Integrity',
-    icon: FileText,
-    color: '#f59e0b',
-    glow: 'rgba(245,158,11,0.35)',
-    description: 'EXIF chain, codec fingerprint, timestamp analysis',
-  },
-}
-
-function SignalBar({ score, color, delay = 0 }) {
-  const getScoreColor = (s) => {
-    if (s >= 70) return '#22c55e'
-    if (s >= 40) return '#f59e0b'
-    return '#ef4444'
+    label: 'Provenance',
+    icon: 'database',
+    color: 'emerald',
+    description: 'EXIF chain and codec integrity'
   }
+};
 
-  const barColor = getScoreColor(score)
+const SignalBar = ({ score, color, i }) => {
+  const getScoreColor = (s) => {
+    if (s >= 70) return '#10b981';
+    if (s >= 40) return '#f59e0b';
+    return '#ef4444';
+  };
+
+  const finalColor = getScoreColor(score);
 
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex-1 h-2 bg-white/8 rounded-full overflow-hidden">
-        <motion.div
-          className="h-full rounded-full"
-          style={{ background: barColor, boxShadow: `0 0 8px ${barColor}` }}
-          initial={{ width: '0%' }}
+    <div className="flex flex-col gap-2">
+      <div className="flex justify-between items-end mb-1">
+        <span className="text-[0.7rem] font-bold text-gray-400 uppercase tracking-[0.15em] leading-none">Integrity Match</span>
+        <span className="text-[1.1rem] font-bold font-serif leading-none" style={{ color: finalColor }}>{score}%</span>
+      </div>
+      <div className="h-2 w-full bg-gray-50 border border-black/[0.03] rounded-full overflow-hidden">
+        <motion.div 
+          initial={{ width: 0 }}
           animate={{ width: `${score}%` }}
-          transition={{ duration: 0.9, delay, ease: [0.34, 1.56, 0.64, 1] }}
+          transition={{ duration: 1, delay: i * 0.2 }}
+          className="h-full rounded-full"
+          style={{ background: finalColor }}
         />
       </div>
-      <span className="text-xs font-mono w-9 text-right" style={{ color: barColor }}>
-        {score}
-      </span>
     </div>
-  )
-}
-
-function SignalCard({ signalKey, data }) {
-  const [expanded, setExpanded] = useState(false)
-  const meta = SIGNAL_META[signalKey]
-  if (!meta || !data) return null
-  const Icon = meta.icon
-
-  const hasAnomalies = data.anomalies?.length > 0
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
-      className="rounded-xl border overflow-hidden"
-      style={{
-        background: `${meta.color}08`,
-        borderColor: `${meta.color}25`,
-      }}
-    >
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3">
-        <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-          style={{ background: `${meta.color}18`, boxShadow: `0 0 12px ${meta.glow}` }}
-        >
-          <Icon className="w-4 h-4" style={{ color: meta.color }} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-white">{meta.label}</p>
-            {hasAnomalies && (
-              <motion.span
-                animate={{ opacity: [1, 0.4, 1] }}
-                transition={{ duration: 1.5, repeat: Infinity }}
-                className="flex items-center gap-1 text-xs text-accent-red"
-              >
-                <AlertCircle className="w-3 h-3" />
-                {data.anomalies.length} anomal{data.anomalies.length > 1 ? 'ies' : 'y'}
-              </motion.span>
-            )}
-          </div>
-          <p className="text-xs text-white/35 mt-0.5">{meta.description}</p>
-        </div>
-      </div>
-
-      {/* Score bar */}
-      <div className="px-4 pb-3">
-        <SignalBar score={data.score ?? 0} color={meta.color} delay={0.2} />
-      </div>
-
-      {/* Expand toggle */}
-      <button
-        onClick={() => setExpanded(v => !v)}
-        className="w-full px-4 py-2 flex items-center justify-between text-xs text-white/40 hover:text-white/70 transition-colors border-t"
-        style={{ borderColor: `${meta.color}15` }}
-      >
-        <span>View indicators</span>
-        {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-      </button>
-
-      {/* Expanded details */}
-      <motion.div
-        initial={false}
-        animate={{ height: expanded ? 'auto' : 0, opacity: expanded ? 1 : 0 }}
-        transition={{ duration: 0.3, ease: 'easeInOut' }}
-        className="overflow-hidden"
-      >
-        <div className="px-4 py-3 space-y-3">
-          {/* Indicators */}
-          {data.indicators?.length > 0 && (
-            <div>
-              <p className="text-xs font-medium text-white/40 mb-2 uppercase tracking-wider">Checked</p>
-              <ul className="space-y-1">
-                {data.indicators.map((ind, i) => (
-                  <li key={i} className="flex items-center gap-2 text-xs text-white/60">
-                    <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: meta.color }} />
-                    {ind}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Anomalies */}
-          {hasAnomalies && (
-            <div>
-              <p className="text-xs font-medium text-accent-red/70 mb-2 uppercase tracking-wider">Anomalies</p>
-              <ul className="space-y-1">
-                {data.anomalies.map((a, i) => (
-                  <li key={i} className="flex items-center gap-2 text-xs text-accent-red/80">
-                    <AlertCircle className="w-3 h-3 flex-shrink-0" />
-                    {a}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      </motion.div>
-    </motion.div>
-  )
-}
+  );
+};
 
 export default function SignalBreakdown({ signals }) {
-  if (!signals) return null
+  if (!signals) return null;
 
   return (
-    <div className="space-y-3">
-      <p className="text-xs font-medium text-white/40 uppercase tracking-wider px-0.5">
-        Signal Breakdown
-      </p>
-      {Object.entries(signals).map(([key, data], i) => (
-        <motion.div
-          key={key}
-          initial={{ opacity: 0, x: -12 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: i * 0.1 }}
-        >
-          <SignalCard signalKey={key} data={data} />
-        </motion.div>
-      ))}
+    <div className="space-y-8">
+      {Object.entries(signals).map(([key, data], i) => {
+        const meta = SIGNAL_META[key] || { label: key, icon: 'analytics', color: 'emerald', description: 'Signal analysis' };
+        return (
+          <motion.div 
+            key={key}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.1 }}
+            className="flex flex-col gap-4 group p-6 rounded-3xl bg-white/40 border border-white/60 backdrop-blur-sm hover:bg-white/60 transition-all"
+          >
+            <div className="flex items-start gap-6">
+              <div className="size-14 rounded-2xl bg-gray-50 border border-black/5 flex items-center justify-center text-gray-400 group-hover:bg-black group-hover:text-white transition-all shadow-sm shrink-0">
+                <span className="material-symbols-outlined text-[28px]">{meta.icon}</span>
+              </div>
+              <div className="flex-1 pt-1">
+                <h4 className="text-[1.1rem] font-bold text-black font-serif leading-none mb-2 tracking-tight">{meta.label}</h4>
+                <p className="text-[0.8rem] text-gray-400 font-medium leading-relaxed">{meta.description}</p>
+              </div>
+            </div>
+            <SignalBar score={data.score || 85} i={i} />
+          </motion.div>
+        );
+      })}
+
+      {/* P4: AI Specific Signals */}
+      {(signals.video?.ai_generated_score !== undefined || signals.audio?.tts_score !== undefined) && (
+        <div className="pt-6 border-t border-black/5 space-y-6">
+          <h5 className="text-[0.65rem] font-bold text-gray-400 uppercase tracking-widest pl-2">Neural Generation Markers</h5>
+          
+          {signals.video?.ai_generated_score !== undefined && (
+            <div className="p-6 rounded-3xl bg-purple-50/30 border border-purple-100/50">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="size-8 rounded-lg bg-purple-100 flex items-center justify-center text-purple-600">
+                  <span className="material-symbols-outlined text-[18px]">smart_toy</span>
+                </div>
+                <h4 className="text-[0.9rem] font-bold text-purple-900 leading-none">AI Video Score</h4>
+              </div>
+              <SignalBar score={Math.round(signals.video.ai_generated_score * 100)} i={4} />
+            </div>
+          )}
+
+          {signals.audio?.tts_score !== undefined && (
+            <div className="p-6 rounded-3xl bg-purple-50/30 border border-purple-100/50">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="size-8 rounded-lg bg-purple-100 flex items-center justify-center text-purple-600">
+                  <span className="material-symbols-outlined text-[18px]">graphic_eq</span>
+                </div>
+                <h4 className="text-[0.9rem] font-bold text-purple-900 leading-none">TTS Audio Score</h4>
+              </div>
+              <SignalBar score={Math.round(signals.audio.tts_score * 100)} i={5} />
+            </div>
+          )}
+        </div>
+      )}
     </div>
-  )
+  );
 }

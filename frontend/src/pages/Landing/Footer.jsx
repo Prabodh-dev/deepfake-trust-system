@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom';
+
 export default function Footer() {
   return (
     <footer className="bg-white border-t border-gray-200 px-6 md:px-12 py-9 flex flex-col md:flex-row items-center justify-between gap-6">
@@ -16,7 +18,7 @@ export default function Footer() {
         <span className="text-[0.78rem] text-gray-400">
           &copy; {new Date().getFullYear()} &middot; All rights reserved
         </span>
-        <a href="#" className="btn-footer-cta">Get started</a>
+        <Link to="/dashboard" className="btn-footer-cta font-medium">Dashboard</Link>
       </div>
     </footer>
   )

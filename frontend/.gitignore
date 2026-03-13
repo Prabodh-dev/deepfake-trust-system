@@ -12,6 +12,5 @@ dist/
 .DS_Store
 *.db
 EOF
-README.md
-nul
+README.md\nul
 frontend/nul

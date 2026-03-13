@@ -23,8 +23,6 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    // If we get a timeout or network error, we can log it but optionally 
-    // we would handle the fallback in the specific call if desired.
     const message = err.response?.data?.detail || err.message || 'Unknown error'
     return Promise.reject(new Error(message))
   }
@@ -75,6 +73,16 @@ export async function fetchAnalysis(id) {
   const { data } = await api.get(`/report/${id}`)
   return data
 }
+
+/**
+ * Fetch global forensic statistics.
+ * @returns {Promise<{total_analyses: number, high_risk: number, low_risk: number, medium_risk: number, average_trust_score: number}>}
+ */
+export async function fetchStats() {
+  const { data } = await api.get('/stats')
+  return data
+}
+
 
 /**
  * Mock analysis result — used when backend is not available (dev mode).

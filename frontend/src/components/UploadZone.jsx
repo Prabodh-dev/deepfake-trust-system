@@ -73,14 +73,14 @@ export default function UploadZone({ onFileSelected, uploading, uploadProgress }
       <motion.label
         htmlFor="file-upload"
         className={clsx(
-          'relative flex flex-col items-center justify-center w-full min-h-[220px] rounded-2xl border-2 border-dashed cursor-pointer transition-all duration-300 overflow-hidden group',
+          'relative flex flex-col items-center justify-center w-full min-h-[420px] rounded-[2.5rem] border-2 border-dashed cursor-pointer transition-all duration-300 overflow-hidden group',
           dragging
             ? 'border-accent-cyan bg-accent-cyan/5 glow-cyan'
             : file && !error
             ? 'border-accent-purple/60 bg-accent-purple/5'
             : error
             ? 'border-accent-red/60 bg-accent-red/5'
-            : 'border-white/15 bg-white/3 hover:border-white/30 hover:bg-white/5'
+            : 'border-black/5 bg-gray-50 hover:border-black/10 hover:bg-gray-100/50'
         )}
         onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
         onDragLeave={() => setDragging(false)}
@@ -122,8 +122,8 @@ export default function UploadZone({ onFileSelected, uploading, uploadProgress }
                 <div className="absolute inset-0 rounded-full border-2 border-accent-cyan/20 animate-ping" />
               </div>
               <div className="text-center">
-                <p className="text-white font-medium">Uploading &amp; Analyzing…</p>
-                <p className="text-white/50 text-sm mt-1">{file?.name}</p>
+                <p className="text-black font-medium">Uploading & Analyzing…</p>
+                <p className="text-gray-400 text-sm mt-1">{file?.name}</p>
               </div>
               {/* Progress bar */}
               <div className="w-full max-w-xs bg-white/10 rounded-full h-1.5 overflow-hidden">
@@ -158,13 +158,13 @@ export default function UploadZone({ onFileSelected, uploading, uploadProgress }
                 )}
               </motion.div>
               <div>
-                <p className="text-white font-semibold text-sm truncate max-w-[240px]">{file.name}</p>
-                <p className="text-white/40 text-xs mt-0.5">{formatBytes(file.size)} · {file.type}</p>
+                <p className="text-black font-semibold text-sm truncate max-w-[240px]">{file.name}</p>
+                <p className="text-gray-400 text-xs mt-0.5">{formatBytes(file.size)} · {file.type}</p>
               </div>
-              <p className="text-white/50 text-xs">File ready — click Analyze to proceed</p>
+              <p className="text-gray-500 text-xs font-medium">File ready — click Analyze to proceed</p>
               <button
                 onClick={clear}
-                className="absolute top-3 right-3 text-white/30 hover:text-white/70 transition-colors"
+                className="absolute top-3 right-3 text-gray-300 hover:text-black transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -183,8 +183,8 @@ export default function UploadZone({ onFileSelected, uploading, uploadProgress }
                 transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
                 className="relative"
               >
-                <div className="w-16 h-16 rounded-2xl glass flex items-center justify-center group-hover:glow-cyan transition-all duration-300">
-                  <Upload className="w-7 h-7 text-white/60 group-hover:text-accent-cyan transition-colors duration-300" />
+                <div className="w-16 h-16 rounded-2xl bg-white border border-black/5 flex items-center justify-center group-hover:glow-cyan transition-all duration-300 shadow-sm">
+                  <Upload className="w-7 h-7 text-gray-400 group-hover:text-accent-cyan transition-colors duration-300" />
                 </div>
                 <motion.div
                   className="absolute -inset-2 rounded-3xl border border-accent-cyan/20"
@@ -194,22 +194,22 @@ export default function UploadZone({ onFileSelected, uploading, uploadProgress }
               </motion.div>
 
               <div>
-                <p className="text-white/80 font-medium">
+                <p className="text-black font-semibold text-lg tracking-tight">
                   Drop your media file here
                 </p>
-                <p className="text-white/40 text-sm mt-1">
-                  or <span className="text-accent-cyan">browse files</span>
+                <p className="text-gray-400 text-[0.85rem] mt-1 font-medium">
+                  or <span className="text-accent-cyan font-bold">browse files</span>
                 </p>
               </div>
 
               <div className="flex gap-2 flex-wrap justify-center">
                 {['MP4', 'MOV', 'WebM', 'AVI', 'MP3', 'WAV'].map((fmt) => (
-                  <span key={fmt} className="text-xs px-2 py-0.5 rounded-full bg-white/8 text-white/40 font-mono border border-white/10">
+                  <span key={fmt} className="text-[10px] px-3 py-1 rounded-full bg-gray-50 text-gray-400 font-bold tracking-wider border border-black/5">
                     {fmt}
                   </span>
                 ))}
               </div>
-              <p className="text-white/25 text-xs">Max {MAX_SIZE_MB} MB</p>
+              <p className="text-gray-300 text-[0.65rem] font-bold uppercase tracking-widest">Max {MAX_SIZE_MB} MB</p>
             </motion.div>
           )}
         </AnimatePresence>

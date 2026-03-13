@@ -1,8 +1,9 @@
 import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import Nav from './pages/Landing/Nav'
+import Navbar from './components/Navbar'
 import Hero from './pages/Landing/Hero'
 import Features from './pages/Landing/Features'
+import Mission from './pages/Landing/Mission'
 import Values from './pages/Landing/Values'
 import CaseStudy from './pages/Landing/CaseStudy'
 import Journal from './pages/Landing/Journal'
@@ -13,6 +14,7 @@ import Footer from './pages/Landing/Footer'
 import Dashboard from './pages/Landing/Dashboard'
 import Analysis from './pages/Landing/Analysis'
 import Report from './pages/Landing/Report'
+import History from './pages/Landing/History'
 
 function Landing() {
   useEffect(() => {
@@ -34,10 +36,11 @@ function Landing() {
 
   return (
     <>
-      <Nav />
+      <Navbar />
       <main>
         <Hero />
         <Features />
+        <Mission />
         <Values />
         <CaseStudy />
         <Journal />
@@ -57,6 +60,7 @@ export default function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/analysis" element={<Analysis />} />
         <Route path="/reports" element={<Report />} />
+        <Route path="/history" element={<History />} />
       </Routes>
     </BrowserRouter>
   )

@@ -1,95 +1,60 @@
-import { motion } from 'framer-motion'
-import { ShieldCheck, ShieldAlert, ShieldX, AlertTriangle } from 'lucide-react'
+import React from 'react';
+import { motion } from 'framer-motion';
 
 const RISK_CONFIG = {
   LOW: {
     label: 'Low Risk',
     description: 'Authenticity signals strong',
-    icon: ShieldCheck,
-    color: '#22c55e',
-    bg: 'rgba(34,197,94,0.1)',
-    border: 'rgba(34,197,94,0.35)',
-    glow: 'rgba(34,197,94,0.3)',
-    pulse: '#22c55e',
+    icon: 'verified_user',
+    color: 'emerald',
+    hex: '#10b981'
   },
   MEDIUM: {
     label: 'Medium Risk',
-    description: 'Some anomalies detected',
-    icon: ShieldAlert,
-    color: '#f59e0b',
-    bg: 'rgba(245,158,11,0.1)',
-    border: 'rgba(245,158,11,0.35)',
-    glow: 'rgba(245,158,11,0.3)',
-    pulse: '#f59e0b',
+    description: 'Minor anomalies detected',
+    icon: 'info',
+    color: 'amber',
+    hex: '#f59e0b'
   },
   HIGH: {
     label: 'High Risk',
-    description: 'Manipulation markers found',
-    icon: ShieldX,
-    color: '#ef4444',
-    bg: 'rgba(239,68,68,0.1)',
-    border: 'rgba(239,68,68,0.35)',
-    glow: 'rgba(239,68,68,0.35)',
-    pulse: '#ef4444',
-  },
-}
+    description: 'Critical deepfake markers',
+    icon: 'warning',
+    color: 'red',
+    hex: '#ef4444'
+  }
+};
 
-export default function RiskBadge({ level = 'MEDIUM', size = 'lg' }) {
-  const cfg = RISK_CONFIG[level] ?? RISK_CONFIG['MEDIUM']
-  const Icon = cfg.icon
-
-  const isLarge = size === 'lg'
-
+export default function RiskBadge({ level = 'MEDIUM', size = 'md' }) {
+  const normLevel = level.toUpperCase();
+  const cfg = RISK_CONFIG[normLevel] || RISK_CONFIG.MEDIUM;
+  
   return (
-    <motion.div
-      key={level}
-      initial={{ scale: 0.85, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      transition={{ type: 'spring', stiffness: 350, damping: 22 }}
-      className="relative inline-flex items-center gap-3 rounded-2xl"
-      style={{
-        background: cfg.bg,
-        border: `1px solid ${cfg.border}`,
-        boxShadow: `0 0 24px ${cfg.glow}`,
-        padding: isLarge ? '14px 20px' : '8px 14px',
-      }}
+    <motion.div 
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className={`inline-flex items-center gap-4 px-6 py-3 rounded-2xl border ${
+        cfg.color === 'emerald' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+        cfg.color === 'amber' ? 'bg-amber-50 text-amber-600 border-amber-100' :
+        'bg-red-50 text-red-600 border-red-100 shadow-[0_4px_20px_rgba(239,68,68,0.1)]'
+      }`}
     >
-      {/* Pulsing dot */}
-      <span className="relative flex-shrink-0">
-        <span
-          className="absolute inline-flex w-full h-full rounded-full opacity-60 animate-ping"
-          style={{ background: cfg.pulse }}
-        />
-        <Icon
-          className={isLarge ? 'w-6 h-6' : 'w-4 h-4'}
-          style={{ color: cfg.color }}
-        />
-      </span>
-
-      <div>
-        <p
-          className={`font-bold tracking-wide ${isLarge ? 'text-base' : 'text-sm'}`}
-          style={{ color: cfg.color }}
-        >
-          {cfg.label}
-        </p>
-        {isLarge && (
-          <p className="text-xs mt-0.5" style={{ color: `${cfg.color}80` }}>
-            {cfg.description}
-          </p>
+      <div className="relative">
+        <span className={`material-symbols-outlined ${size === 'lg' ? 'text-[24px]' : 'text-[20px]'}`}>
+          {cfg.icon}
+        </span>
+        {normLevel === 'HIGH' && (
+          <span className="absolute -top-1 -right-1 size-2 bg-red-500 rounded-full animate-ping" />
         )}
       </div>
-
-      {/* Corner flash for HIGH */}
-      {level === 'HIGH' && (
-        <motion.div
-          className="absolute top-2 right-2"
-          animate={{ opacity: [1, 0, 1] }}
-          transition={{ duration: 1.2, repeat: Infinity }}
-        >
-          <AlertTriangle className="w-3 h-3" style={{ color: cfg.color }} />
-        </motion.div>
-      )}
+      <div className="flex flex-col">
+        <span className={`font-bold uppercase tracking-wider ${size === 'lg' ? 'text-[0.75rem]' : 'text-[0.65rem]'}`}>
+          {cfg.label}
+        </span>
+        <span className={`font-medium opacity-60 leading-none ${size === 'lg' ? 'text-[0.7rem]' : 'text-[0.6rem]'}`}>
+          {cfg.description}
+        </span>
+      </div>
     </motion.div>
-  )
+  );
 }
