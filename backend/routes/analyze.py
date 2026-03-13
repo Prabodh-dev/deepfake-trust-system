@@ -6,7 +6,7 @@ from backend.utils.scoring import calculate_trust_score
 from backend.db.database import save_analysis, get_history, get_report, clear_history, get_stats
 from backend.utils.video_detector import detect_video
 from backend.utils.audio_detector import analyze_audio
-from backend.utils.metadata_extractor import extract_metadata
+from backend.utils.metadata_extractor import extract_metadata, build_provenance_chain  # ← FIXED
 
 analyze_bp = Blueprint('analyze', __name__)
 
@@ -44,6 +44,10 @@ def analyze():
 
         audio_result    = analyze_audio(filepath)
         metadata_result = extract_metadata(filepath)
+        try:                                                          # ← ADDED
+            metadata_result["provenance_chain"] = build_provenance_chain(filepath)
+        except Exception:
+            metadata_result["provenance_chain"] = []
 
         score_data = calculate_trust_score(video_result, audio_result, metadata_result)
 
@@ -65,7 +69,7 @@ def analyze():
 
         save_analysis(result)  # Save FIRST — heatmap_b64 still in DB
 
-        # Then strip from response, only expose URL if High Risk
+        # Strip heatmap from response, only expose URL if High Risk
         if result["signals"]["video"].get("heatmap_b64"):
             if result["risk_level"] == "High":
                 result["signals"]["video"]["heatmap_url"] = f"/api/heatmap/{analysis_id}"
@@ -134,7 +138,12 @@ def analyze_batch():
             }
             audio_result    = analyze_audio(filepath)
             metadata_result = extract_metadata(filepath)
-            score_data      = calculate_trust_score(video_result, audio_result, metadata_result)
+            try:                                                      # ← ADDED
+                metadata_result["provenance_chain"] = build_provenance_chain(filepath)
+            except Exception:
+                metadata_result["provenance_chain"] = []
+
+            score_data = calculate_trust_score(video_result, audio_result, metadata_result)
 
             analysis_id = str(uuid.uuid4())
             result = {
@@ -154,7 +163,7 @@ def analyze_batch():
 
             save_analysis(result)  # Save FIRST — heatmap_b64 still in DB
 
-            # Then strip from response, only expose URL if High Risk
+            # Strip heatmap from response, only expose URL if High Risk
             if result["signals"]["video"].get("heatmap_b64"):
                 if result["risk_level"] == "High":
                     result["signals"]["video"]["heatmap_url"] = f"/api/heatmap/{analysis_id}"
