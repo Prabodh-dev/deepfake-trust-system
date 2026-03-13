@@ -8,12 +8,17 @@ import cv2
 import numpy as np
 from PIL import Image
 from transformers import pipeline as hf_pipeline
+import torch
 
 FAKE_THRESHOLD = 0.98
 
+device = 0 if torch.cuda.is_available() else -1
+print(f"Using {'GPU' if device == 0 else 'CPU'} for inference")
+
 deepfake_detector = hf_pipeline(
     "image-classification",
-    model="prithivMLmods/Deep-Fake-Detector-Model"
+    model="prithivMLmods/Deep-Fake-Detector-Model",
+    device=device
 )
 
 def detect_video(filepath: str) -> dict:
