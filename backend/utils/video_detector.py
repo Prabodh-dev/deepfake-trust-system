@@ -37,14 +37,11 @@ def detect_video(filepath: str) -> dict:
         try:
             pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
             result = deepfake_detector(pil_img)
-
             top = max(result, key=lambda x: x["score"])
-
             if top["label"] == "Fake":
                 fake_score = top["score"]
             else:
                 fake_score = 1.0 - top["score"]
-
             scores.append(fake_score)
         except Exception:
             continue
@@ -55,9 +52,11 @@ def detect_video(filepath: str) -> dict:
         return {"score": 0.5, "frames_analyzed": 0, "inconsistency_regions": False, "label": "No face detected", "no_face": True}
 
     avg_fake_prob = float(np.mean(scores))
-    inconsistency = sum(1 for s in scores if s > FAKE_THRESHOLD) / len(scores) > 0.4
+    
+    # Temporal consistency check — high variance = unnatural face changes = deepfake
+    score_variance = float(np.var(scores))
+    inconsistency_regions = score_variance > 0.01 or sum(1 for s in scores if s > FAKE_THRESHOLD) / len(scores) > 0.4
 
-    # Calibrate score — model threshold is 0.98 so anything below is real
     if avg_fake_prob >= FAKE_THRESHOLD:
         calibrated = round(avg_fake_prob, 4)
     else:
@@ -66,7 +65,7 @@ def detect_video(filepath: str) -> dict:
     return {
         "score": calibrated,
         "frames_analyzed": len(scores),
-        "inconsistency_regions": inconsistency,
+        "inconsistency_regions": inconsistency_regions,
         "label": "Likely Deepfake" if avg_fake_prob >= FAKE_THRESHOLD else "Likely Real",
         "no_face": False
     }
