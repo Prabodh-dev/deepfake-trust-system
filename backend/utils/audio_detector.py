@@ -36,11 +36,11 @@ def analyze_audio(filepath: str) -> dict:
             # Check if video has audio stream first
             if not has_audio_stream(filepath):
                 return {
-                    "score": 0.5,
-                    "mfcc_anomaly": False,
-                    "spectral_flatness": 0.0,
-                    "label": "No audio stream found",
-                }
+    "score": 0.1,
+    "mfcc_anomaly": False,
+    "spectral_flatness": 0.0,
+    "label": "No audio stream found",
+}
 
             tmp_fd, tmp_wav = tempfile.mkstemp(suffix=".wav")
             os.close(tmp_fd)

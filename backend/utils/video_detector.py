@@ -1,9 +1,3 @@
-# video_detector.py
-# P1 — ML / AI Engineer
-# Phase 2: Middle 60% frame sampling, calibrated threshold 0.98
-# Real video (585.mp4) → score: 0.9689 → Likely Real ✅
-# Deepfake (469_481.mp4) → score: 0.9978 → Likely Deepfake ✅
-
 import cv2
 import numpy as np
 from PIL import Image
@@ -43,7 +37,14 @@ def detect_video(filepath: str) -> dict:
         try:
             pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
             result = deepfake_detector(pil_img)
-            fake_score = next((r["score"] for r in result if r["label"] == "Fake"), 0.5)
+
+            top = max(result, key=lambda x: x["score"])
+
+            if top["label"] == "Fake":
+                fake_score = top["score"]
+            else:
+                fake_score = 1.0 - top["score"]
+
             scores.append(fake_score)
         except Exception:
             continue
@@ -56,10 +57,16 @@ def detect_video(filepath: str) -> dict:
     avg_fake_prob = float(np.mean(scores))
     inconsistency = sum(1 for s in scores if s > FAKE_THRESHOLD) / len(scores) > 0.4
 
+    # Calibrate score — model threshold is 0.98 so anything below is real
+    if avg_fake_prob >= FAKE_THRESHOLD:
+        calibrated = round(avg_fake_prob, 4)
+    else:
+        calibrated = round((avg_fake_prob / FAKE_THRESHOLD) * 0.30, 4)
+
     return {
-        "score": round(avg_fake_prob, 4),
+        "score": calibrated,
         "frames_analyzed": len(scores),
         "inconsistency_regions": inconsistency,
-        "label": "Likely Deepfake" if avg_fake_prob > FAKE_THRESHOLD else "Likely Real",
+        "label": "Likely Deepfake" if avg_fake_prob >= FAKE_THRESHOLD else "Likely Real",
         "no_face": False
     }

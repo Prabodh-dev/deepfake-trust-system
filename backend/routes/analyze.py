@@ -65,6 +65,7 @@ def analyze():
 
         save_analysis(result)
         print(f"[SENT] File: {file.filename} | Trust Score: {result['trust_score']} | Risk: {result['risk_level']}")
+        print(f"[SCORES] Video: {video_result['score']} | Audio: {audio_result['score']} | Metadata: {metadata_result['score']}")
         return jsonify(result), 200
 
     except Exception as e:
