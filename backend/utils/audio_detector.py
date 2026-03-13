@@ -125,6 +125,18 @@ def analyze_audio(filepath: str) -> dict:
         gan_score         – float [0, 1]  (GAN artifact likelihood)
         compression_chain – int           (number of codec changes detected)
         label             – str
+
+    Scoring weights
+    ---------------
+        0.30  spectral_flatness  — strongest GAN indicator; vocoders blur
+                                   harmonic energy, pushing flatness above 0.4
+        0.25  mfcc_sub          — synthetic voices reuse learned embeddings,
+                                   giving unnaturally low MFCC variance
+        0.25  gan_score         — rolloff variance (flat in GAN) +
+                                   spectral contrast (compressed in GAN)
+        0.10  zcr_sub           — GAN models under-produce stop-consonant
+                                   voiced/unvoiced transitions
+        0.10  compression_sub   — multiple codec changes indicate re-processing
     """
     _FALLBACK = {
         "score": 0.5,
@@ -199,6 +211,9 @@ def analyze_audio(filepath: str) -> dict:
 
         # ------------------------------------------------------------------ #
         # 3. MFCC features                                                    #
+        # 20-coeff MFCCs encode vocal tract shape. Real speech continuously   #
+        # reshapes the tract → high variance. Cloned voices reuse learned     #
+        # embeddings → unnaturally low variance.                              #
         # ------------------------------------------------------------------ #
         mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)   # (20, T)
         mfcc_std_per_coeff = np.std(mfcc, axis=1)
@@ -210,6 +225,8 @@ def analyze_audio(filepath: str) -> dict:
 
         # ------------------------------------------------------------------ #
         # 4. Spectral flatness                                                #
+        # Wiener entropy: 0 = pure tone, 1 = white noise.                    #
+        # GAN vocoders smear harmonic energy → flatness > 0.4.               #
         # ------------------------------------------------------------------ #
         flatness = librosa.feature.spectral_flatness(y=y)     # (1, T)
         mean_flatness = float(np.mean(flatness))
@@ -219,6 +236,8 @@ def analyze_audio(filepath: str) -> dict:
 
         # ------------------------------------------------------------------ #
         # 5. Zero-crossing rate                                               #
+        # Correlates with voiced/unvoiced transitions. TTS models often       #
+        # under-produce fine-grained stop-consonant dynamics.                 #
         # ------------------------------------------------------------------ #
         zcr = librosa.feature.zero_crossing_rate(y)           # (1, T)
         mean_zcr = float(np.mean(zcr))
@@ -227,20 +246,19 @@ def analyze_audio(filepath: str) -> dict:
         zcr_sub = float(np.clip(mean_zcr / ZCR_THRESHOLD, 0.0, 1.0))
 
         # ------------------------------------------------------------------ #
-        # 6. GAN artifact detection (Phase 2)                                 #
+        # 6. GAN artifact detection                                           #
+        # Rolloff variance (flat in GAN) + spectral contrast (compressed).   #
         # ------------------------------------------------------------------ #
         gan_score = detect_gan_artifacts(y, sr)
 
         # ------------------------------------------------------------------ #
-        # 7. Compression chain detection (Phase 2)                            #
+        # 7. Compression chain detection                                      #
         # ------------------------------------------------------------------ #
         compression_chain = _get_compression_chain(filepath)
-        # Normalise: 3+ codec changes = fully suspicious
         compression_sub = float(np.clip(compression_chain / 3.0, 0.0, 1.0))
 
         # ------------------------------------------------------------------ #
         # 8. Composite anomaly score                                          #
-        #    Phase 2 updated weights — GAN score now included                 #
         # ------------------------------------------------------------------ #
         score = float(
             0.30 * flatness_sub +

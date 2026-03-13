@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 from datetime import datetime
+from typing import Optional
 
 
 # Fields whose absence strongly suggests a synthetic or re-processed file
@@ -36,6 +37,19 @@ DEEPFAKE_ENCODER_SIGNATURES = [
     "davinci",       # DaVinci Resolve — video was edited
     "premiere",      # Adobe Premiere — video was edited
 ]
+
+# EXIF fields expected on an unmanipulated camera recording
+EXPECTED_ORIGIN_FIELDS = {
+    "Make":         "Camera manufacturer",
+    "Model":        "Camera model",
+    "CreateDate":   "Original capture timestamp",
+    "GPSLatitude":  "GPS latitude",
+    "GPSLongitude": "GPS longitude",
+    "Software":     "Encoding software",
+}
+
+# Date formats tried when parsing EXIF date strings
+_DATE_FORMATS = ["%Y:%m:%d %H:%M:%S", "%Y:%m:%d", "%Y-%m-%dT%H:%M:%S"]
 
 
 def _run_exiftool(filepath: str) -> dict:
@@ -288,3 +302,267 @@ def extract_metadata(filepath: str) -> dict:
     except Exception as exc:
         print(f"[metadata_extractor] Unexpected error: {exc}")
         return _FALLBACK
+
+
+# ===========================================================================
+# PROVENANCE CHAIN
+# Reconstructs the modification history of a media file as a forensic
+# timeline. Called separately from extract_metadata — P3 can surface this
+# in the API response alongside the risk score.
+# ===========================================================================
+
+def _parse_exif_date(value: str) -> Optional[datetime]:
+    """Try several common EXIF date formats; return None on failure."""
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(value[:len(fmt)], fmt)
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def _file_mtime(filepath: str) -> Optional[datetime]:
+    """Return the filesystem modification time, or None."""
+    try:
+        return datetime.fromtimestamp(os.path.getmtime(filepath))
+    except OSError:
+        return None
+
+
+def _all_ffprobe_tags(ffprobe_data: dict) -> list:
+    """Flatten every tag value from format + all streams into one list."""
+    tags = []
+    for val in ffprobe_data.get("format", {}).get("tags", {}).values():
+        tags.append(str(val).lower())
+    for stream in ffprobe_data.get("streams", []):
+        for val in stream.get("tags", {}).values():
+            tags.append(str(val).lower())
+    return tags
+
+
+def _event(event: str, risk: float, detail: str) -> dict:
+    """Convenience constructor — clamps risk to [0, 1]."""
+    return {
+        "event": event,
+        "risk_contribution": round(max(0.0, min(float(risk), 1.0)), 4),
+        "detail": detail,
+    }
+
+
+def build_provenance_chain(filepath: str) -> list:
+    """
+    Reconstruct the modification history of a media file as a forensic
+    timeline.
+
+    Uses ExifTool for EXIF/XMP metadata and ffprobe for container/codec
+    information. Events are ordered chronologically where dates are
+    available; undated events are appended at the end.
+
+    Parameters
+    ----------
+    filepath : str
+        Path to the media file.
+
+    Returns
+    -------
+    list[dict]
+        Each element: {event: str, risk_contribution: float, detail: str}
+        risk_contribution is per-event, not cumulative — use extract_metadata
+        for the composite score.
+    """
+    if not os.path.isfile(filepath):
+        return [_event("File not found", 0.0, f"No file at path: {filepath}")]
+
+    exif     = _run_exiftool(filepath)
+    ffprobe  = _run_ffprobe(filepath)
+
+    dated:   list = []  # (datetime, event_dict)
+    undated: list = []
+
+    def add(dt, ev):
+        if dt:
+            dated.append((dt, ev))
+        else:
+            undated.append(ev)
+
+    # ── 1. Original capture ────────────────────────────────────────────────
+    create_date_str = exif.get("CreateDate", "")
+    create_dt = _parse_exif_date(create_date_str) if create_date_str else None
+    make  = exif.get("Make", "").strip()
+    model = exif.get("Model", "").strip()
+    has_gps = bool(exif.get("GPSLatitude") or exif.get("GPS Latitude"))
+
+    if create_dt and (make or model):
+        device_str = " ".join(filter(None, [make, model]))
+        detail = f"CreateDate={create_date_str}, device='{device_str}'"
+        if has_gps:
+            detail += ", GPS present ✓"
+        add(create_dt, _event("Original capture recorded", 0.0, detail))
+    elif create_dt:
+        add(create_dt, _event(
+            "Timestamp present but no device metadata",
+            0.08,
+            f"CreateDate={create_date_str}, Make/Model absent",
+        ))
+    else:
+        undated.append(_event(
+            "Creation timestamp missing",
+            0.08,
+            "EXIF CreateDate field is absent or empty",
+        ))
+
+    # ── 2. Missing device identity ────────────────────────────────────────
+    for field in ("Make", "Model"):
+        if not exif.get(field):
+            undated.append(_event(
+                f"Device identity absent ({EXPECTED_ORIGIN_FIELDS[field]})",
+                0.08,
+                f"EXIF field '{field}' is absent — metadata may have been stripped",
+            ))
+
+    if not has_gps:
+        undated.append(_event(
+            "No GPS data",
+            0.03,
+            "GPSLatitude absent — common when GPS is disabled, low risk alone",
+        ))
+
+    # ── 3. GPS present but camera absent — partial scrub ──────────────────
+    if has_gps and not (make or model):
+        undated.append(_event(
+            "GPS retained but camera identity stripped",
+            0.15,
+            "GPSLatitude present, Make/Model absent — possible partial metadata scrub",
+        ))
+
+    # ── 4. Software field ─────────────────────────────────────────────────
+    software_raw = exif.get("Software", "").strip()
+    if software_raw:
+        sw_lower = software_raw.lower()
+        matched_kws = [kw for kw in SUSPICIOUS_SOFTWARE_KEYWORDS if kw in sw_lower]
+        if matched_kws:
+            mod_str = exif.get("ModifyDate") or exif.get("FileModifyDate", "")
+            mod_dt  = _parse_exif_date(mod_str) if mod_str else None
+            add(mod_dt, _event(
+                "AI/deepfake generation software detected",
+                0.25,
+                f"Software='{software_raw}' matches keywords: {matched_kws}",
+            ))
+        else:
+            editing_tools = ["premiere", "davinci", "final cut", "handbrake",
+                             "vegas", "avid", "resolve", "kdenlive", "shotcut"]
+            matched_editors = [t for t in editing_tools if t in sw_lower]
+            if matched_editors:
+                mod_str = exif.get("ModifyDate") or exif.get("FileModifyDate", "")
+                mod_dt  = _parse_exif_date(mod_str) if mod_str else None
+                add(mod_dt, _event(
+                    "Video editing software used",
+                    0.10,
+                    f"Software='{software_raw}' — file was edited post-capture",
+                ))
+            else:
+                undated.append(_event("Encoding software recorded", 0.0, f"Software='{software_raw}'"))
+
+    # ── 5. Date mismatch: EXIF ModifyDate vs disk mtime ───────────────────
+    exif_modify_str = exif.get("ModifyDate", "")
+    exif_modify_dt  = _parse_exif_date(exif_modify_str) if exif_modify_str else None
+    disk_mtime      = _file_mtime(filepath)
+
+    if exif_modify_dt and disk_mtime:
+        gap_days = abs((disk_mtime - exif_modify_dt).days)
+        if gap_days > 30:
+            add(disk_mtime, _event(
+                "Metadata date / filesystem date mismatch",
+                0.20,
+                (
+                    f"EXIF ModifyDate={exif_modify_str}, "
+                    f"disk mtime={disk_mtime.strftime('%Y-%m-%d')}, "
+                    f"gap={gap_days} days — metadata may have been backdated"
+                ),
+            ))
+        elif gap_days > 0:
+            add(disk_mtime, _event(
+                "Minor date delta between EXIF and filesystem",
+                0.05,
+                f"EXIF ModifyDate={exif_modify_str}, disk mtime={disk_mtime.strftime('%Y-%m-%d')}, gap={gap_days} days",
+            ))
+
+    # ── 6. Long gap: CreateDate to FileModifyDate ─────────────────────────
+    file_modify_str = exif.get("FileModifyDate", "")
+    file_modify_dt  = _parse_exif_date(file_modify_str) if file_modify_str else None
+    if file_modify_dt and create_dt and file_modify_dt > create_dt:
+        gap_days = (file_modify_dt - create_dt).days
+        if gap_days > 30:
+            add(file_modify_dt, _event(
+                "File modified long after original capture",
+                0.15,
+                f"CreateDate={create_date_str}, FileModifyDate={file_modify_str}, gap={gap_days} days",
+            ))
+
+    # ── 7. Re-encoding history ────────────────────────────────────────────
+    streams  = ffprobe.get("streams", [])
+    fmt_tags = ffprobe.get("format", {}).get("tags", {})
+    all_tags = _all_ffprobe_tags(ffprobe)
+
+    encoder_set: set = set()
+    for key in ("encoder", "Encoder", "major_brand"):
+        val = fmt_tags.get(key, "").strip()
+        if val:
+            encoder_set.add(val.lower())
+    for stream in streams:
+        for key in ("encoder", "Encoder", "handler_name"):
+            val = stream.get("tags", {}).get(key, "").strip()
+            if val:
+                encoder_set.add(val.lower())
+
+    reencodes = max(0, len(encoder_set) - 1)
+    if reencodes > 0:
+        undated.append(_event(
+            f"Re-encoding detected ({reencodes} event{'s' if reencodes > 1 else ''})",
+            min(reencodes * 0.05, 0.15),
+            f"Distinct encoder tags: {sorted(encoder_set)}. Each implies one re-encode pass.",
+        ))
+
+    # ── 8. Deepfake encoder signatures ────────────────────────────────────
+    sig_hits: set = set()
+    for sig in DEEPFAKE_ENCODER_SIGNATURES:
+        if any(sig in tag for tag in all_tags):
+            sig_hits.add(sig)
+    if sig_hits:
+        undated.append(_event(
+            "Deepfake / AI processing tool signature in stream tags",
+            min(len(sig_hits) * 0.15, 0.30),
+            f"Matched signatures: {sorted(sig_hits)}",
+        ))
+
+    # ── 9. Suspicious resolution ──────────────────────────────────────────
+    for stream in streams:
+        w = stream.get("width", 0)
+        h = stream.get("height", 0)
+        if w and h and (w, h) in SUSPICIOUS_RESOLUTIONS:
+            undated.append(_event(
+                f"Suspicious AI-generation resolution ({w}×{h})",
+                0.35,
+                f"{w}×{h} matches common AI face-generation output sizes. Real cameras never produce this.",
+            ))
+            break
+
+    # ── 10. Multiple streams ──────────────────────────────────────────────
+    video_streams = [s for s in streams if s.get("codec_type") == "video"]
+    audio_streams = [s for s in streams if s.get("codec_type") == "audio"]
+    if len(video_streams) > 1:
+        undated.append(_event(
+            f"Multiple video streams ({len(video_streams)}) in container",
+            0.08,
+            "Original camera files have exactly one video stream — extras suggest re-muxing.",
+        ))
+    if len(audio_streams) > 1:
+        undated.append(_event(
+            f"Multiple audio streams ({len(audio_streams)}) in container",
+            0.05,
+            "Multiple audio streams can indicate audio replacement (e.g. voice swap).",
+        ))
+
+    # ── Sort and return ───────────────────────────────────────────────────
+    dated.sort(key=lambda pair: pair[0])
+    return [ev for _, ev in dated] + undated
