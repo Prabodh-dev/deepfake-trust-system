@@ -6,7 +6,7 @@ import tensorflow as tf
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from models.model_loader import get_model
+from backend.models.model_loader import get_model
 
 mtcnn = MTCNN(keep_all=False, device="cpu")
 

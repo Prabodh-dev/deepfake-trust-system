@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import backend.config as config
 from backend.utils.scoring import calculate_trust_score
 from backend.db.database import save_analysis, get_history, get_report, clear_history
+from backend.utils.video_detector import detect_video
 
 analyze_bp = Blueprint('analyze', __name__)
 
@@ -31,10 +32,12 @@ def analyze():
 
     try:
         # ── STUBS (P1 and P2 replace these when they push) ──────────────
-        video_result = {
-            "score": 0.5, "frames_analyzed": 0,
-            "inconsistency_regions": False, "label": "Pending — P1 not integrated yet"
-        }
+        video_result = detect_video(filepath) if is_video(file.filename) else {
+    "score": 0.5,
+    "frames_analyzed": 0,
+    "inconsistency_regions": False,
+    "label": "N/A - Audio file"
+}
         audio_result = {
             "score": 0.5, "mfcc_anomaly": False,
             "spectral_flatness": 0.0, "label": "Pending — P2 not integrated yet"

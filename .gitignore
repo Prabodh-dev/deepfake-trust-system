@@ -12,3 +12,4 @@ dist/
 .DS_Store
 *.db
 EOF
+tests/sample_files/
