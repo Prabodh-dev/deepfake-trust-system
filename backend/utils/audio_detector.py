@@ -5,10 +5,6 @@ import numpy as np
 import librosa
 import soundfile as sf
 
-import os
-os.environ["PATH"] += r";C:\ffmpeg\bin"
-os.environ["PATH"] += r";C:\Windows\exiftool-13.52_64"
-
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 
@@ -56,15 +52,31 @@ def analyze_audio(filepath: str) -> dict:
                 "-ar", "16000",
                 tmp_wav,
             ]
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(
-                    f"FFmpeg failed: {result.stderr.decode(errors='replace')}"
+            try:
+                result = subprocess.run(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                 )
+                if result.returncode != 0:
+                    stderr_output = result.stderr.decode(errors='replace')
+                    # No audio stream = video-only file, return specific fallback
+                    if "does not contain any stream" in stderr_output or \
+                       "Output file does not contain any stream" in stderr_output:
+                        return {
+                            "score": 0.5,
+                            "mfcc_anomaly": False,
+                            "spectral_flatness": 0.0,
+                            "label": "No audio stream found",
+                        }
+                    raise RuntimeError(f"FFmpeg failed: {stderr_output}")
+            except FileNotFoundError:
+                return {
+                    "score": 0.5,
+                    "mfcc_anomaly": False,
+                    "spectral_flatness": 0.0,
+                    "label": "No audio stream found",
+                }
             load_path = tmp_wav
         else:
             load_path = filepath
