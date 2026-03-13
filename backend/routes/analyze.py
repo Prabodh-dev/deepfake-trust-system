@@ -94,3 +94,66 @@ def clear():
     print(f"[CLEAR] History cleared")
     clear_history()
     return jsonify({"cleared": True}), 200
+
+@analyze_bp.route('/analyze/batch', methods=['POST'])
+def analyze_batch():
+    if 'files' not in request.files:
+        return jsonify({"error": "No files provided"}), 400
+
+    files = request.files.getlist('files')
+    if len(files) == 0:
+        return jsonify({"error": "Empty file list"}), 400
+
+    if len(files) > 5:
+        return jsonify({"error": "Max 5 files allowed per batch"}), 400
+
+    results = []
+    for file in files:
+        if not file.filename or not allowed_file(file.filename):
+            results.append({"filename": file.filename, "error": "Invalid file type"})
+            continue
+
+        ext = file.filename.rsplit('.', 1)[1].lower()
+        unique_name = f"{uuid.uuid4()}.{ext}"
+        filepath = os.path.join(config.UPLOAD_FOLDER, unique_name)
+        file.save(filepath)
+
+        print(f"[BATCH] Processing: {file.filename}")
+
+        try:
+            video_result = detect_video(filepath) if is_video(file.filename) else {
+                "score": 0.5, "frames_analyzed": 0,
+                "inconsistency_regions": False, "label": "N/A - Audio file"
+            }
+            audio_result    = analyze_audio(filepath)
+            metadata_result = extract_metadata(filepath)
+            score_data      = calculate_trust_score(video_result, audio_result, metadata_result)
+
+            analysis_id = str(uuid.uuid4())
+            result = {
+                "id":          analysis_id,
+                "filename":    file.filename,
+                "file_type":   "video" if is_video(file.filename) else "audio",
+                "trust_score": score_data["trust_score"],
+                "risk_level":  score_data["risk_level"],
+                "explanation": score_data["explanation"],
+                "signals": {
+                    "video":    video_result,
+                    "audio":    audio_result,
+                    "metadata": metadata_result
+                },
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+            save_analysis(result)
+            print(f"[BATCH] Done: {file.filename} | Score: {result['trust_score']} | Risk: {result['risk_level']}")
+            results.append(result)
+
+        except Exception as e:
+            print(f"[BATCH ERROR] {file.filename}: {str(e)}")
+            results.append({"filename": file.filename, "error": str(e)})
+
+        finally:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+
+    return jsonify({"total": len(results), "results": results}), 200
