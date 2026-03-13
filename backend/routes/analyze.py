@@ -32,6 +32,8 @@ def analyze():
     filepath = os.path.join(config.UPLOAD_FOLDER, unique_name)
     file.save(filepath)
 
+    print(f"[RECEIVED] File: {file.filename} | Size: {os.path.getsize(filepath)} bytes")
+
     try:
         video_result = detect_video(filepath) if is_video(file.filename) else {
             "score": 0.5,
@@ -62,9 +64,11 @@ def analyze():
         }
 
         save_analysis(result)
+        print(f"[SENT] File: {file.filename} | Trust Score: {result['trust_score']} | Risk: {result['risk_level']}")
         return jsonify(result), 200
 
     except Exception as e:
+        print(f"[ERROR] File: {file.filename} | Error: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
     finally:
@@ -73,10 +77,12 @@ def analyze():
 
 @analyze_bp.route('/history', methods=['GET'])
 def history():
+    print(f"[HISTORY] Request received")
     return jsonify(get_history()), 200
 
 @analyze_bp.route('/report/<analysis_id>', methods=['GET'])
 def report(analysis_id):
+    print(f"[REPORT] Requested ID: {analysis_id}")
     data = get_report(analysis_id)
     if not data:
         return jsonify({"error": "Report not found"}), 404
@@ -84,5 +90,6 @@ def report(analysis_id):
 
 @analyze_bp.route('/history/clear', methods=['DELETE'])
 def clear():
+    print(f"[CLEAR] History cleared")
     clear_history()
     return jsonify({"cleared": True}), 200
