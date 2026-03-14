@@ -14,14 +14,17 @@ def calculate_trust_score(video_result: dict,
         config.METADATA_WEIGHT * m
     )
 
-    ai_video  = video_result.get("ai_generated_score", 0.0)
-    tts_audio = audio_result.get("tts_score", 0.0)
+    ai_video       = video_result.get("ai_generated_score", 0.0)
+    tts_audio      = audio_result.get("tts_score", 0.0)
+    model_ai_score = video_result.get("model_ai_score", 0.0)
 
-    # Threshold 0.26 — splits AI gen (0.2982) from real (0.2030)
-    if ai_video > 0.26 and tts_audio > 0.55:
-        ai_boost = (ai_video * 0.20) + (tts_audio * 0.10)
-    elif ai_video > 0.26:
-        ai_boost = ai_video * 0.20
+    # Use strongest signal across both AI detectors
+    strongest_ai = max(ai_video, model_ai_score)
+
+    if strongest_ai > 0.26 and tts_audio > 0.55:
+        ai_boost = (strongest_ai * 0.20) + (tts_audio * 0.10)
+    elif strongest_ai > 0.26:
+        ai_boost = strongest_ai * 0.20
     elif tts_audio > 0.55:
         ai_boost = tts_audio * 0.15
     else:
@@ -50,6 +53,8 @@ def calculate_trust_score(video_result: dict,
         signals_text.append("video appears fully AI-generated")
     if tts_audio > 0.55:
         signals_text.append("audio appears TTS-synthesised")
+    if model_ai_score > 0.60:
+        signals_text.append("AI image classifier confirmed synthetic content")
 
     if signals_text:
         explanation = (f"Trust score {trust_score}/100. "
