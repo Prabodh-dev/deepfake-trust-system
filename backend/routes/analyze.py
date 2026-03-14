@@ -18,6 +18,35 @@ def allowed_file(filename):
 def is_video(filename):
     return filename.rsplit('.', 1)[1].lower() in {'mp4', 'mov', 'avi'}
 
+def _strip_response(result, analysis_id):
+    if result["signals"]["video"].get("heatmap_b64"):
+        if result["risk_level"] in ("High", "Medium"):
+            result["signals"]["video"]["heatmap_url"] = f"/api/heatmap/{analysis_id}"
+        del result["signals"]["video"]["heatmap_b64"]
+    if result["risk_level"] == "Low" or result["signals"]["video"].get("score", 0) < 0.4:
+        result["signals"]["video"]["manipulation_regions"] = []
+    return result
+
+def _get_ai_generated(video_result, audio_result):
+    ai_video_score  = video_result.get("ai_generated_score", 0.0)
+    tts_audio_score = audio_result.get("tts_score", 0.0)
+    model_ai_score  = video_result.get("model_ai_score", 0.0)
+    return bool(
+        ai_video_score  > 0.26 or
+        tts_audio_score > 0.55 or
+        model_ai_score  > 0.60
+    )
+
+AUDIO_ONLY_VIDEO = {
+    "score": 0.5,
+    "frames_analyzed": 0,
+    "inconsistency_regions": False,
+    "label": "N/A - Audio file",
+    "ai_generated_score": 0.0,
+    "model_ai_score": 0.0,
+    "manipulation_regions": []
+}
+
 @analyze_bp.route('/analyze', methods=['POST'])
 def analyze():
     if 'file' not in request.files:
@@ -36,14 +65,7 @@ def analyze():
     print(f"[RECEIVED] File: {file.filename} | Size: {os.path.getsize(filepath)} bytes")
 
     try:
-        video_result = detect_video(filepath) if is_video(file.filename) else {
-            "score": 0.5,
-            "frames_analyzed": 0,
-            "inconsistency_regions": False,
-            "label": "N/A - Audio file",
-            "ai_generated_score": 0.0,
-            "manipulation_regions": []
-        }
+        video_result = detect_video(filepath) if is_video(file.filename) else dict(AUDIO_ONLY_VIDEO)
 
         audio_result    = analyze_audio(filepath)
         metadata_result = extract_metadata(filepath)
@@ -55,11 +77,8 @@ def analyze():
         if "anomaly_segments" not in audio_result:
             audio_result["anomaly_segments"] = []
 
-        score_data = calculate_trust_score(video_result, audio_result, metadata_result)
-
-        ai_video_score  = video_result.get("ai_generated_score", 0.0)
-        tts_audio_score = audio_result.get("tts_score", 0.0)
-        ai_generated    = bool(ai_video_score > 0.26 or tts_audio_score > 0.55)
+        score_data   = calculate_trust_score(video_result, audio_result, metadata_result)
+        ai_generated = _get_ai_generated(video_result, audio_result)
 
         analysis_id = str(uuid.uuid4())
         result = {
@@ -79,14 +98,10 @@ def analyze():
         }
 
         save_analysis(result)
-
-        if result["signals"]["video"].get("heatmap_b64"):
-            if result["risk_level"] in ("High", "Medium"):
-                result["signals"]["video"]["heatmap_url"] = f"/api/heatmap/{analysis_id}"
-            del result["signals"]["video"]["heatmap_b64"]
+        result = _strip_response(result, analysis_id)
 
         print(f"[SENT] File: {file.filename} | Trust Score: {result['trust_score']} | Risk: {result['risk_level']} | AI Generated: {ai_generated}")
-        print(f"[SCORES] Video: {video_result['score']} | Audio: {audio_result['score']} | Metadata: {metadata_result['score']} | AI Video: {ai_video_score} | TTS: {tts_audio_score}")
+        print(f"[SCORES] Video: {video_result['score']} | Audio: {audio_result['score']} | Metadata: {metadata_result['score']} | AI Gen: {video_result.get('ai_generated_score',0)} | Model: {video_result.get('model_ai_score',0)} | SDXL: {video_result.get('sdxl_score',0)} | TTS: {audio_result.get('tts_score',0)}")
         return jsonify(result), 200
 
     except Exception as e:
@@ -106,7 +121,6 @@ def analyze_url():
 
     url = data['url'].strip()
 
-    # ← UPDATED: Instagram support added
     if not any(domain in url for domain in [
         'youtube.com', 'youtu.be',
         'instagram.com', 'instagr.am'
@@ -115,33 +129,45 @@ def analyze_url():
             "error": "Only YouTube and Instagram URLs are supported"
         }), 400
 
-    unique_name = str(uuid.uuid4())
-    filepath = os.path.join(config.UPLOAD_FOLDER, f"{unique_name}.mp4")
+    unique_name  = str(uuid.uuid4())
+    download_dir = config.UPLOAD_FOLDER
+    outtmpl      = os.path.join(download_dir, f"{unique_name}.%(ext)s")
+    filepath     = None
 
     print(f"[URL] Downloading: {url}")
 
     try:
         ydl_opts = {
-            'format': 'best[ext=mp4][filesize<200M]/best[ext=mp4]/best',
-            'outtmpl': filepath,
+            'format': 'best[ext=mp4][filesize<200M]/best[ext=mp4]/best/best',
+            'outtmpl': outtmpl,
             'quiet': True,
             'no_warnings': True,
             'socket_timeout': 30,
+            'merge_output_format': 'mp4',
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
+            info        = ydl.extract_info(url, download=True)
             video_title = info.get('title', url)
             duration    = info.get('duration', 0)
+            ext         = info.get('ext', 'mp4')
+            filepath    = os.path.join(download_dir, f"{unique_name}.{ext}")
 
-        if duration > 300:
-            if os.path.exists(filepath):
+        if not os.path.exists(filepath):
+            for f in os.listdir(download_dir):
+                if f.startswith(unique_name):
+                    filepath = os.path.join(download_dir, f)
+                    print(f"[URL] Resolved filepath via scan: {filepath}")
+                    break
+
+        if duration and duration > 300:
+            if filepath and os.path.exists(filepath):
                 os.remove(filepath)
             return jsonify({
                 "error": f"Video too long ({duration}s). Max 5 minutes allowed."
             }), 400
 
-        if not os.path.exists(filepath):
+        if not filepath or not os.path.exists(filepath):
             return jsonify({"error": "Download failed — file not found"}), 500
 
         print(f"[URL] Downloaded: {video_title} | Size: {os.path.getsize(filepath)} bytes")
@@ -158,11 +184,8 @@ def analyze_url():
         if "anomaly_segments" not in audio_result:
             audio_result["anomaly_segments"] = []
 
-        score_data = calculate_trust_score(video_result, audio_result, metadata_result)
-
-        ai_video_score  = video_result.get("ai_generated_score", 0.0)
-        tts_audio_score = audio_result.get("tts_score", 0.0)
-        ai_generated    = bool(ai_video_score > 0.26 or tts_audio_score > 0.55)
+        score_data   = calculate_trust_score(video_result, audio_result, metadata_result)
+        ai_generated = _get_ai_generated(video_result, audio_result)
 
         analysis_id = str(uuid.uuid4())
         result = {
@@ -183,11 +206,7 @@ def analyze_url():
         }
 
         save_analysis(result)
-
-        if result["signals"]["video"].get("heatmap_b64"):
-            if result["risk_level"] in ("High", "Medium"):
-                result["signals"]["video"]["heatmap_url"] = f"/api/heatmap/{analysis_id}"
-            del result["signals"]["video"]["heatmap_b64"]
+        result = _strip_response(result, analysis_id)
 
         print(f"[URL] Done: {video_title} | Score: {result['trust_score']} | Risk: {result['risk_level']}")
         return jsonify(result), 200
@@ -201,7 +220,7 @@ def analyze_url():
         return jsonify({"error": str(e)}), 500
 
     finally:
-        if os.path.exists(filepath):
+        if filepath and os.path.exists(filepath):
             os.remove(filepath)
 
 
@@ -253,12 +272,7 @@ def analyze_batch():
         print(f"[BATCH] Processing: {file.filename}")
 
         try:
-            video_result = detect_video(filepath) if is_video(file.filename) else {
-                "score": 0.5, "frames_analyzed": 0,
-                "inconsistency_regions": False, "label": "N/A - Audio file",
-                "ai_generated_score": 0.0,
-                "manipulation_regions": []
-            }
+            video_result = detect_video(filepath) if is_video(file.filename) else dict(AUDIO_ONLY_VIDEO)
             audio_result    = analyze_audio(filepath)
             metadata_result = extract_metadata(filepath)
             try:
@@ -269,11 +283,8 @@ def analyze_batch():
             if "anomaly_segments" not in audio_result:
                 audio_result["anomaly_segments"] = []
 
-            score_data = calculate_trust_score(video_result, audio_result, metadata_result)
-
-            ai_video_score  = video_result.get("ai_generated_score", 0.0)
-            tts_audio_score = audio_result.get("tts_score", 0.0)
-            ai_generated    = bool(ai_video_score > 0.26 or tts_audio_score > 0.55)
+            score_data   = calculate_trust_score(video_result, audio_result, metadata_result)
+            ai_generated = _get_ai_generated(video_result, audio_result)
 
             analysis_id = str(uuid.uuid4())
             result = {
@@ -293,11 +304,7 @@ def analyze_batch():
             }
 
             save_analysis(result)
-
-            if result["signals"]["video"].get("heatmap_b64"):
-                if result["risk_level"] in ("High", "Medium"):
-                    result["signals"]["video"]["heatmap_url"] = f"/api/heatmap/{analysis_id}"
-                del result["signals"]["video"]["heatmap_b64"]
+            result = _strip_response(result, analysis_id)
 
             print(f"[BATCH] Done: {file.filename} | Score: {result['trust_score']} | Risk: {result['risk_level']} | AI Generated: {ai_generated}")
             results.append(result)

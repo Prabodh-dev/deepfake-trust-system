@@ -12,9 +12,18 @@ AI_GEN_THRESHOLD = 0.65
 device = 0 if torch.cuda.is_available() else -1
 print(f"Using {'GPU' if device == 0 else 'CPU'} for inference")
 
+# ── Model 1: Face-swap deepfake detector ────────────────────────────────── #
 deepfake_detector = hf_pipeline(
     "image-classification",
     model="prithivMLmods/Deep-Fake-Detector-Model",
+    device=device
+)
+
+# ── Model 2: General AI vs Real image classifier ─────────────────────────── #
+# umm-maybe/AI-image-detector — labels: "artificial" | "nature"
+ai_vs_real_detector = hf_pipeline(
+    "image-classification",
+    model="umm-maybe/AI-image-detector",
     device=device
 )
 
@@ -200,7 +209,7 @@ def detect_ai_generated_frame(frame_bgr) -> float:
             0.03 * chroma_real +
             0.02 * distort_real +
             0.02 * grain_real
-        )  # max = 0.10 ← reduced from 0.30 to 0.10
+        )  # max = 0.10
 
         combined = float(np.clip(ai_component - real_component + 0.04, 0.0, 1.0))
         return round(combined, 4)
@@ -209,13 +218,31 @@ def detect_ai_generated_frame(frame_bgr) -> float:
         return 0.0
 
 
+def run_ai_vs_real_model(frame_bgr) -> float:
+    """
+    umm-maybe/AI-image-detector
+    Labels: "artificial" = AI generated, "nature" = real photo
+    Returns float 0-1 where 1 = AI generated.
+    """
+    try:
+        pil_img = Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
+        result  = ai_vs_real_detector(pil_img)
+        for item in result:
+            label = item["label"].strip().lower()
+            if label in ("artificial", "fake", "ai", "ai_generated", "generated"):
+                return float(item["score"])
+            if label in ("nature", "real", "natural", "authentic", "photo"):
+                return float(1.0 - item["score"])
+        top = max(result, key=lambda x: x["score"])
+        label = top["label"].strip().lower()
+        if label in ("nature", "real", "natural", "authentic", "photo"):
+            return float(1.0 - top["score"])
+        return float(top["score"])
+    except Exception:
+        return 0.0
+
+
 def detect_temporal_flicker(video_path, num_frames=15) -> float:
-    """
-    Detect unnatural frame-to-frame smoothness.
-    Real cameras: natural variance in transitions (high cv).
-    AI videos: suspiciously smooth transitions (low cv).
-    Returns float 0-1 where 1 = likely AI generated.
-    """
     cap = cv2.VideoCapture(video_path)
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     indices = np.linspace(int(total * 0.2), int(total * 0.8), num_frames, dtype=int)
@@ -229,23 +256,30 @@ def detect_temporal_flicker(video_path, num_frames=15) -> float:
     if len(frames) < 2:
         return 0.5
     diffs = [np.std(np.abs(frames[i] - frames[i-1])) for i in range(1, len(frames))]
-    # ← FIXED: was np.std/np.mean which flagged smooth real videos
-    # Real camera cv typically > 0.3, AI < 0.15
     cv = float(np.std(diffs) / (np.mean(diffs) + 1e-8))
     return float(np.clip(cv / 0.5, 0.0, 1.0))
 
 
-def compute_ai_generated_score(video_path, frame_scores) -> float:
+def compute_ai_generated_score(video_path, frame_scores, model_scores) -> float:
     """
-    Combine per-frame 13-signal scores + temporal flicker.
-    ← FIXED: flicker weight reduced 0.8→0.30, frame weight increased 0.2→0.70
-    Flicker alone is unreliable — smooth real videos (tripod, talking head)
-    score high. Frame-level 13-signal analysis is far more reliable.
+    3-signal ensemble:
+      0.55 — umm-maybe AI vs Real model (trained classifier, most reliable)
+      0.30 — 13-signal DCT frame analysis (video-specific artifacts)
+      0.15 — temporal flicker (motion smoothness)
+
+    SDXL detector removed — gave 0.99 on real camera footage, unreliable on video.
     """
-    flicker = detect_temporal_flicker(video_path)
+    flicker          = detect_temporal_flicker(video_path)
     flicker_ai_score = 1.0 - flicker
-    frame_ai_score = float(np.mean(frame_scores)) if frame_scores else 0.0
-    return round((0.30 * flicker_ai_score) + (0.70 * frame_ai_score), 4)
+    frame_ai_score   = float(np.mean(frame_scores)) if frame_scores else 0.0
+    model_ai_score   = float(np.mean(model_scores)) if model_scores else 0.0
+
+    combined = (
+        0.55 * model_ai_score   +
+        0.30 * frame_ai_score   +
+        0.15 * flicker_ai_score
+    )
+    return round(float(np.clip(combined, 0.0, 1.0)), 4)
 
 
 def generate_heatmap(frame_bgr):
@@ -268,13 +302,7 @@ def generate_heatmap(frame_bgr):
     return base64.b64encode(buffer).decode('utf-8')
 
 
-
 def get_manipulation_regions(frame_bgr):
-    """
-    Uses ViT attention map to find top 3 most suspicious patches.
-    Returns list of bounding boxes as percentage coords.
-    [{"x":20,"y":10,"w":30,"h":40,"confidence":0.91}]
-    """
     try:
         pil_img = Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
         inputs = processor(images=pil_img, return_tensors="pt")
@@ -303,13 +331,16 @@ def get_manipulation_regions(frame_bgr):
     except Exception:
         return []
 
+
 def detect_video(filepath: str) -> dict:
     cap = cv2.VideoCapture(filepath)
     if not cap.isOpened():
         return {
             "score": 0.5, "frames_analyzed": 0,
             "inconsistency_regions": False, "label": "Could not open video",
-            "no_face": True, "heatmap_b64": None, "ai_generated_score": 0.0
+            "no_face": True, "heatmap_b64": None,
+            "ai_generated_score": 0.0, "model_ai_score": 0.0,
+            "manipulation_regions": []
         }
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -317,19 +348,22 @@ def detect_video(filepath: str) -> dict:
         return {
             "score": 0.5, "frames_analyzed": 0,
             "inconsistency_regions": False, "label": "Empty video",
-            "no_face": True, "heatmap_b64": None, "ai_generated_score": 0.0
+            "no_face": True, "heatmap_b64": None,
+            "ai_generated_score": 0.0, "model_ai_score": 0.0,
+            "manipulation_regions": []
         }
 
-    fps = cap.get(cv2.CAP_PROP_FPS) or 25
-    start = int(total_frames * 0.20)
-    end   = int(total_frames * 0.80)
+    fps    = cap.get(cv2.CAP_PROP_FPS) or 25
+    start  = int(total_frames * 0.20)
+    end    = int(total_frames * 0.80)
     indices = np.linspace(start, end, 30, dtype=int)
 
-    scores        = []
-    frame_scores  = []
-    faces_not_detected   = 0
-    most_suspicious_frame = None
-    max_fake_score = 0
+    scores                   = []
+    frame_scores             = []
+    model_scores             = []
+    faces_not_detected       = 0
+    most_suspicious_frame    = None
+    max_fake_score           = 0
     suspicious_frame_regions = []
 
     for idx in indices:
@@ -338,34 +372,35 @@ def detect_video(filepath: str) -> dict:
         if not ret:
             continue
         try:
-            pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            result  = deepfake_detector(pil_img)
-            top     = max(result, key=lambda x: x["score"])
+            pil_img    = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            result     = deepfake_detector(pil_img)
+            top        = max(result, key=lambda x: x["score"])
             fake_score = top["score"] if top["label"] == "Fake" else 1.0 - top["score"]
             scores.append(fake_score)
             if fake_score > max_fake_score:
-                max_fake_score = fake_score
+                max_fake_score        = fake_score
                 most_suspicious_frame = frame.copy()
         except Exception:
             faces_not_detected += 1
             continue
 
         frame_scores.append(detect_ai_generated_frame(frame))
+        model_scores.append(run_ai_vs_real_model(frame))
 
-        # Collect manipulation regions for suspicious frames
         if fake_score > 0.5 and len(suspicious_frame_regions) < 5:
             timestamp = round(float(idx / fps), 2)
-            regions = get_manipulation_regions(frame)
+            regions   = get_manipulation_regions(frame)
             if regions:
                 suspicious_frame_regions.append({
                     "timestamp": timestamp,
-                    "regions": regions
+                    "regions":   regions
                 })
 
     cap.release()
 
-    no_face = faces_not_detected / max(len(indices), 1) > 0.8
-    avg_ai_gen_score = compute_ai_generated_score(filepath, frame_scores)
+    no_face          = faces_not_detected / max(len(indices), 1) > 0.8
+    avg_model_score  = round(float(np.mean(model_scores)) if model_scores else 0.0, 4)
+    avg_ai_gen_score = compute_ai_generated_score(filepath, frame_scores, model_scores)
 
     if len(scores) == 0:
         return {
@@ -373,6 +408,7 @@ def detect_video(filepath: str) -> dict:
             "inconsistency_regions": False, "label": "No face detected",
             "no_face": True, "heatmap_b64": None,
             "ai_generated_score": avg_ai_gen_score,
+            "model_ai_score":     avg_model_score,
             "manipulation_regions": []
         }
 
@@ -389,13 +425,11 @@ def detect_video(filepath: str) -> dict:
         calibrated = round((avg_fake_prob / FAKE_THRESHOLD) * 0.30, 4)
 
     heatmap_b64 = None
-    manipulation_regions = []
     if most_suspicious_frame is not None:
         try:
             heatmap_b64 = generate_heatmap(most_suspicious_frame)
         except Exception:
             heatmap_b64 = None
-
 
     return {
         "score":                 calibrated,
@@ -405,5 +439,6 @@ def detect_video(filepath: str) -> dict:
         "no_face":               no_face,
         "heatmap_b64":           heatmap_b64,
         "ai_generated_score":    avg_ai_gen_score,
+        "model_ai_score":        avg_model_score,
         "manipulation_regions":  suspicious_frame_regions,
     }
