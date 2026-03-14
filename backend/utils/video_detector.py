@@ -268,6 +268,48 @@ def generate_heatmap(frame_bgr):
     return base64.b64encode(buffer).decode('utf-8')
 
 
+
+def get_manipulation_regions(frame_bgr):
+    """
+    Uses ViT attention map to find top 3 most suspicious patches.
+    Returns list of bounding boxes as percentage coords.
+    [{"x":20,"y":10,"w":30,"h":40,"confidence":0.91}]
+    """
+    try:
+        pil_img = Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
+        inputs = processor(images=pil_img, return_tensors="pt")
+        with torch.no_grad():
+            outputs = torch_model.vision_model(
+                pixel_values=inputs['pixel_values'],
+                return_dict=True
+            )
+        hidden = outputs.last_hidden_state.squeeze(0)  # [196, 768]
+        token_scores = hidden.norm(dim=-1).numpy()     # [196]
+        patch_grid = token_scores.reshape(14, 14)
+
+        # Normalize
+        patch_grid = (patch_grid - patch_grid.min()) / (patch_grid.max() - patch_grid.min() + 1e-8)
+
+        # Find top 3 patches
+        flat = patch_grid.flatten()
+        top3_indices = np.argsort(flat)[-3:][::-1]
+
+        regions = []
+        for idx in top3_indices:
+            row = idx // 14
+            col = idx % 14
+            # Convert patch position to percentage bounding box
+            x = round(float(col / 14.0 * 100), 2)
+            y = round(float(row / 14.0 * 100), 2)
+            w = round(float(1 / 14.0 * 100), 2)
+            h = round(float(1 / 14.0 * 100), 2)
+            confidence = round(float(patch_grid[row, col]), 4)
+            regions.append({"x": x, "y": y, "w": w, "h": h, "confidence": confidence})
+
+        return regions
+    except Exception:
+        return []
+
 def detect_video(filepath: str) -> dict:
     cap = cv2.VideoCapture(filepath)
     if not cap.isOpened():
@@ -342,11 +384,14 @@ def detect_video(filepath: str) -> dict:
         calibrated = round((avg_fake_prob / FAKE_THRESHOLD) * 0.30, 4)
 
     heatmap_b64 = None
+    manipulation_regions = []
     if most_suspicious_frame is not None:
         try:
             heatmap_b64 = generate_heatmap(most_suspicious_frame)
         except Exception:
             heatmap_b64 = None
+        if avg_fake_prob >= 0.4:
+            manipulation_regions = get_manipulation_regions(most_suspicious_frame)
 
     return {
         "score":                 calibrated,
@@ -356,4 +401,5 @@ def detect_video(filepath: str) -> dict:
         "no_face":               no_face,
         "heatmap_b64":           heatmap_b64,
         "ai_generated_score":    avg_ai_gen_score,
+        "manipulation_regions":  manipulation_regions,
     }
