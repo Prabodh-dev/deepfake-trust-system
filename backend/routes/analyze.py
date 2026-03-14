@@ -40,7 +40,8 @@ def analyze():
             "frames_analyzed": 0,
             "inconsistency_regions": False,
             "label": "N/A - Audio file",
-            "ai_generated_score": 0.0
+            "ai_generated_score": 0.0,
+            "manipulation_regions": []        # ← ADDED
         }
 
         audio_result    = analyze_audio(filepath)
@@ -50,11 +51,15 @@ def analyze():
         except Exception:
             metadata_result["provenance_chain"] = []
 
+        # Ensure anomaly_segments always present even if P2 hasn't pushed yet
+        if "anomaly_segments" not in audio_result:
+            audio_result["anomaly_segments"] = []
+
         score_data = calculate_trust_score(video_result, audio_result, metadata_result)
 
         ai_video_score  = video_result.get("ai_generated_score", 0.0)
         tts_audio_score = audio_result.get("tts_score", 0.0)
-        ai_generated = bool(ai_video_score > 0.26 or tts_audio_score > 0.55)
+        ai_generated    = bool(ai_video_score > 0.26 or tts_audio_score > 0.55)
 
         analysis_id = str(uuid.uuid4())
         result = {
@@ -75,9 +80,9 @@ def analyze():
 
         save_analysis(result)  # Save FIRST — heatmap_b64 still in DB
 
-        # Strip heatmap from response, only expose URL if High Risk
+        # Strip heatmap from response, only expose URL if High/Medium Risk
         if result["signals"]["video"].get("heatmap_b64"):
-            if result["risk_level"] == "High":
+            if result["risk_level"] in ("High", "Medium"):   # ← Medium added for manipulation overlay
                 result["signals"]["video"]["heatmap_url"] = f"/api/heatmap/{analysis_id}"
             del result["signals"]["video"]["heatmap_b64"]
 
@@ -145,7 +150,8 @@ def analyze_batch():
             video_result = detect_video(filepath) if is_video(file.filename) else {
                 "score": 0.5, "frames_analyzed": 0,
                 "inconsistency_regions": False, "label": "N/A - Audio file",
-                "ai_generated_score": 0.0
+                "ai_generated_score": 0.0,
+                "manipulation_regions": []    # ← ADDED
             }
             audio_result    = analyze_audio(filepath)
             metadata_result = extract_metadata(filepath)
@@ -154,11 +160,15 @@ def analyze_batch():
             except Exception:
                 metadata_result["provenance_chain"] = []
 
+            # Ensure anomaly_segments always present
+            if "anomaly_segments" not in audio_result:
+                audio_result["anomaly_segments"] = []
+
             score_data = calculate_trust_score(video_result, audio_result, metadata_result)
 
             ai_video_score  = video_result.get("ai_generated_score", 0.0)
             tts_audio_score = audio_result.get("tts_score", 0.0)
-            ai_generated = bool(ai_video_score > 0.26 or tts_audio_score > 0.55)
+            ai_generated    = bool(ai_video_score > 0.26 or tts_audio_score > 0.55)
 
             analysis_id = str(uuid.uuid4())
             result = {
@@ -179,9 +189,9 @@ def analyze_batch():
 
             save_analysis(result)  # Save FIRST — heatmap_b64 still in DB
 
-            # Strip heatmap from response, only expose URL if High Risk
+            # Strip heatmap from response, only expose URL if High/Medium Risk
             if result["signals"]["video"].get("heatmap_b64"):
-                if result["risk_level"] == "High":
+                if result["risk_level"] in ("High", "Medium"):
                     result["signals"]["video"]["heatmap_url"] = f"/api/heatmap/{analysis_id}"
                 del result["signals"]["video"]["heatmap_b64"]
 
