@@ -144,40 +144,7 @@ deepfake-trust-system/
 
 ---
 
-## 🔬 How It Works
 
-### 1. **Video Analysis** (80% weight)
-- Samples 30 frames from video (20%-80% duration)
-- **Face-swap detection**: XceptionNet model (HuggingFace `prithivMLmods/Deep-Fake-Detector-Model`)
-- **AI-generated detection**: 13-signal heuristic analysis + AI classifier
-  - Checks: DCT frequencies, noise floor, edge uniformity, vignetting, chromatic aberration, etc.
-- Generates **Grad-CAM heatmap** showing suspicious facial regions
-
-### 2. **Audio Analysis** (15% weight)
-- Extracts audio via FFmpeg
-- **GAN voice cloning detection**:
-  - Spectral rolloff variance (cloned voices are unnaturally flat)
-  - MFCC variance (reused embeddings)
-  - Spectral flatness (GAN vocoders > 0.4)
-  - Zero-crossing rate (TTS lacks stop consonants)
-- Compression chain analysis (re-encoding count)
-
-### 3. **Metadata Forensics** (5% weight)
-- EXIF/XMP extraction via ExifTool
-- Detects: missing camera metadata, suspicious resolutions (512×512), date mismatches, deepfake encoder signatures
-- Builds **provenance chain** with per-event risk contributions
-
-### 4. **Trust Score Calculation**
-```python
-raw_fake = (0.80 × video) + (0.15 × audio) + (0.05 × metadata)
-
-# AI-generated boost (if detected)
-if ai_video > 0.26 and tts_audio > 0.55:
-    ai_boost = (ai_video × 0.20) + (tts_audio × 0.10)
-
-trust_score = 100 - (raw_fake × 100)
-risk_level = "Low" if score ≥ 70 else "Medium" if score ≥ 40 else "High"
-```
 
 ---
 
