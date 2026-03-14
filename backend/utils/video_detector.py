@@ -283,29 +283,22 @@ def get_manipulation_regions(frame_bgr):
                 pixel_values=inputs['pixel_values'],
                 return_dict=True
             )
-        hidden = outputs.last_hidden_state.squeeze(0)  # [196, 768]
-        token_scores = hidden.norm(dim=-1).numpy()     # [196]
+        hidden = outputs.last_hidden_state.squeeze(0)
+        token_scores = hidden.norm(dim=-1).numpy()
         patch_grid = token_scores.reshape(14, 14)
-
-        # Normalize
         patch_grid = (patch_grid - patch_grid.min()) / (patch_grid.max() - patch_grid.min() + 1e-8)
-
-        # Find top 3 patches
         flat = patch_grid.flatten()
         top3_indices = np.argsort(flat)[-3:][::-1]
-
         regions = []
         for idx in top3_indices:
             row = idx // 14
             col = idx % 14
-            # Convert patch position to percentage bounding box
             x = round(float(col / 14.0 * 100), 2)
             y = round(float(row / 14.0 * 100), 2)
             w = round(float(1 / 14.0 * 100), 2)
             h = round(float(1 / 14.0 * 100), 2)
             confidence = round(float(patch_grid[row, col]), 4)
             regions.append({"x": x, "y": y, "w": w, "h": h, "confidence": confidence})
-
         return regions
     except Exception:
         return []
@@ -337,6 +330,7 @@ def detect_video(filepath: str) -> dict:
     faces_not_detected   = 0
     most_suspicious_frame = None
     max_fake_score = 0
+    suspicious_frame_regions = []
 
     for idx in indices:
         cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
@@ -358,6 +352,16 @@ def detect_video(filepath: str) -> dict:
 
         frame_scores.append(detect_ai_generated_frame(frame))
 
+        # Collect manipulation regions for suspicious frames
+        if fake_score > 0.5 and len(suspicious_frame_regions) < 5:
+            timestamp = round(float(idx / fps), 2)
+            regions = get_manipulation_regions(frame)
+            if regions:
+                suspicious_frame_regions.append({
+                    "timestamp": timestamp,
+                    "regions": regions
+                })
+
     cap.release()
 
     no_face = faces_not_detected / max(len(indices), 1) > 0.8
@@ -368,7 +372,8 @@ def detect_video(filepath: str) -> dict:
             "score": 0.5, "frames_analyzed": 0,
             "inconsistency_regions": False, "label": "No face detected",
             "no_face": True, "heatmap_b64": None,
-            "ai_generated_score": avg_ai_gen_score
+            "ai_generated_score": avg_ai_gen_score,
+            "manipulation_regions": []
         }
 
     avg_fake_prob  = float(np.mean(scores))
@@ -390,8 +395,7 @@ def detect_video(filepath: str) -> dict:
             heatmap_b64 = generate_heatmap(most_suspicious_frame)
         except Exception:
             heatmap_b64 = None
-        if avg_fake_prob >= 0.4:
-            manipulation_regions = get_manipulation_regions(most_suspicious_frame)
+
 
     return {
         "score":                 calibrated,
@@ -401,5 +405,5 @@ def detect_video(filepath: str) -> dict:
         "no_face":               no_face,
         "heatmap_b64":           heatmap_b64,
         "ai_generated_score":    avg_ai_gen_score,
-        "manipulation_regions":  manipulation_regions,
+        "manipulation_regions":  suspicious_frame_regions,
     }
