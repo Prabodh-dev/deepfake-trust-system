@@ -197,7 +197,12 @@ export default function History() {
                             {new Date(item.analyzed_at).toLocaleTimeString()}
                           </span>
                           <div className="flex gap-6 mt-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                             <button className="text-[0.8rem] font-bold uppercase tracking-widest text-black border-b border-black pb-0.5">View Report</button>
+                             <button 
+                               onClick={() => navigate(`/reports?id=${item.id}`)}
+                               className="text-[0.8rem] font-bold uppercase tracking-widest text-black border-b border-black pb-0.5 hover:opacity-60 transition-opacity"
+                             >
+                               View Report
+                             </button>
                              <button className="text-[0.8rem] font-bold uppercase tracking-widest text-gray-400 hover:text-red-500 transition-colors">Archive</button>
                           </div>
                         </div>

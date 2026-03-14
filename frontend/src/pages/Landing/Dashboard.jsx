@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import clsx from 'clsx';
 import Navbar from '../../components/Navbar';
 import UploadZone from '../../components/UploadZone';
-import { fetchHistory, analyzeMedia, fetchStats, mockAnalyze } from '../../api/client';
+import { fetchHistory, analyzeMedia, fetchStats, mockAnalyze, analyzeUrl } from '../../api/client';
 
 export default function Dashboard() {
   const [history, setHistory] = useState([]);
@@ -32,9 +32,9 @@ export default function Dashboard() {
           { id: 'mock-2', filename: 'verified_press_cm.mp4', risk_level: 'LOW', trust_score: 98, analyzed_at: new Date().toISOString(), file_type: 'video/mp4' }
         ]);
         setStats({
-          total_analyses: 1248,
-          high_risk: 42,
-          average_trust_score: 88.2
+          total_analyses: 110,
+          high_risk: 22,
+          average_trust_score: 94.2
         });
       } finally {
         setLoadingHistory(false);
@@ -65,6 +65,21 @@ export default function Dashboard() {
       navigate(`/analysis?id=${mockResult.id}&mock=true`, { 
         state: { initialResult: mockResult, uploadedFile: selectedFile } 
       });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleUrlAnalysis = async (url) => {
+    setUploading(true);
+    try {
+      const result = await analyzeUrl(url);
+      const id = result.id || `analysis-${Date.now()}`;
+      navigate(`/analysis?id=${id}${result.mock ? '&mock=true' : ''}`, { 
+        state: { initialResult: result } 
+      });
+    } catch (err) {
+      console.error('URL analysis failed:', err);
     } finally {
       setUploading(false);
     }
@@ -119,6 +134,7 @@ export default function Dashboard() {
                   >
                     <UploadZone 
                       onFileSelected={(file) => setSelectedFile(file)}
+                      onUrlAnalyze={handleUrlAnalysis}
                       uploading={uploading}
                       uploadProgress={uploadProgress}
                     />

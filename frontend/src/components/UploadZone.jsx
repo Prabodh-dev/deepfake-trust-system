@@ -14,7 +14,7 @@ const ACCEPTED = {
   'audio/mp4': ['.m4a'],
 }
 
-const MAX_SIZE_MB = 500
+const MAX_SIZE_MB = 200
 
 function formatBytes(bytes) {
   if (bytes === 0) return '0 B'
@@ -24,10 +24,12 @@ function formatBytes(bytes) {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
 }
 
-export default function UploadZone({ onFileSelected, uploading, uploadProgress }) {
+export default function UploadZone({ onFileSelected, onUrlAnalyze, uploading, uploadProgress }) {
   const [dragging, setDragging] = useState(false)
   const [file, setFile] = useState(null)
   const [error, setError] = useState(null)
+  const [mediaUrl, setMediaUrl] = useState('')
+  const [urlError, setUrlError] = useState(null)
 
   const validate = useCallback((f) => {
     if (!Object.keys(ACCEPTED).includes(f.type)) {
@@ -68,12 +70,25 @@ export default function UploadZone({ onFileSelected, uploading, uploadProgress }
   const isVideo = file?.type?.startsWith('video')
   const isAudio = file?.type?.startsWith('audio')
 
+  const handleUrlAnalyze = () => {
+    if (!mediaUrl) return
+    const isYoutube = mediaUrl.includes('youtube.com') || mediaUrl.includes('youtu.be')
+    const isInstagram = mediaUrl.includes('instagram.com') || mediaUrl.includes('instagr.am')
+    
+    if (!isYoutube && !isInstagram) {
+      setUrlError('Please enter a valid YouTube or Instagram URL')
+      return
+    }
+    setUrlError(null)
+    onUrlAnalyze(mediaUrl)
+  }
+
   return (
     <div className="w-full">
       <motion.label
         htmlFor="file-upload"
         className={clsx(
-          'relative flex flex-col items-center justify-center w-full min-h-[420px] rounded-[2.5rem] border-2 border-dashed cursor-pointer transition-all duration-300 overflow-hidden group',
+          'relative flex flex-col items-center justify-center w-full min-h-[490px] rounded-[2.7rem] border-2 border-dashed cursor-pointer transition-all duration-300 overflow-hidden group',
           dragging
             ? 'border-accent-cyan bg-accent-cyan/5 glow-cyan'
             : file && !error
@@ -224,7 +239,6 @@ export default function UploadZone({ onFileSelected, uploading, uploadProgress }
         />
       </motion.label>
 
-      {/* Error message */}
       <AnimatePresence>
         {error && (
           <motion.div
@@ -238,6 +252,54 @@ export default function UploadZone({ onFileSelected, uploading, uploadProgress }
           </motion.div>
         )}
       </AnimatePresence>
+
+      <div className="mt-12 w-full max-w-2xl mx-auto">
+        <div className="flex flex-col items-center gap-6">
+          <div className="flex items-center gap-4 w-full">
+            <div className="h-[1px] flex-1 bg-gradient-to-r from-transparent via-black/5 to-transparent" />
+            <span className="text-[0.65rem] font-bold uppercase tracking-[0.3em] text-gray-300">OR</span>
+            <div className="h-[1px] flex-1 bg-gradient-to-r from-transparent via-black/5 to-transparent" />
+          </div>
+
+          <div className="w-full flex flex-col gap-3">
+            <div className="relative group">
+              <input
+                type="text"
+                placeholder="Paste YouTube or Instagram URL"
+                value={mediaUrl}
+                onChange={(e) => {
+                  setMediaUrl(e.target.value)
+                  if (urlError) setUrlError(null)
+                }}
+                disabled={uploading}
+                className={clsx(
+                  "w-full bg-gray-50/50 border-2 rounded-2xl py-4 px-6 text-sm font-medium transition-all outline-none",
+                  urlError 
+                    ? "border-red-500/50 focus:border-red-500 text-red-900" 
+                    : "border-black/5 focus:border-black/10 focus:bg-white"
+                )}
+              />
+              <button
+                onClick={handleUrlAnalyze}
+                disabled={uploading || !mediaUrl}
+                className="absolute right-2 top-2 bottom-2 px-6 bg-black text-white rounded-xl text-[0.7rem] font-bold uppercase tracking-widest hover:opacity-85 active:scale-[0.98] transition-all disabled:opacity-20 disabled:scale-100 disabled:grayscale"
+              >
+                {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Analyze URL'}
+              </button>
+            </div>
+            
+            {urlError && (
+              <motion.p
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-red-500 text-[0.7rem] font-bold uppercase tracking-widest ml-1"
+              >
+                {urlError}
+              </motion.p>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

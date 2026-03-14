@@ -1,7 +1,9 @@
 import React from 'react';
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 
 export default function HistorySidebar({ history, onSelect, activeId }) {
+  const navigate = useNavigate();
   return (
     <div className="flex flex-col h-full bg-white border-r border-gray-100 w-80 shrink-0 overflow-hidden">
       <div className="p-8 border-b border-gray-50 flex items-center justify-between bg-gray-50/20">
@@ -68,7 +70,10 @@ export default function HistorySidebar({ history, onSelect, activeId }) {
       </div>
 
       <div className="p-6 border-t border-gray-50 bg-gray-50/30">
-        <button className="w-full py-4 rounded-xl border border-gray-100 text-[0.65rem] font-bold uppercase tracking-widest text-gray-400 hover:text-black hover:bg-white transition-all">
+        <button 
+          onClick={() => navigate('/history')}
+          className="w-full py-4 rounded-xl border border-gray-100 text-[0.65rem] font-bold uppercase tracking-widest text-gray-400 hover:text-black hover:bg-white transition-all active:scale-[0.98]"
+        >
           View Archives
         </button>
       </div>

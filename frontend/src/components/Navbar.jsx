@@ -74,7 +74,10 @@ export default function Navbar() {
             />
           </div>
         </div>
-        <div className="size-11 rounded-full bg-gray-100 border border-black/5 overflow-hidden ring-2 ring-transparent hover:ring-black/10 transition-all cursor-pointer">
+        <div 
+          onClick={() => navigate('/dashboard')}
+          className="size-11 rounded-full bg-gray-100 border border-black/5 overflow-hidden ring-2 ring-transparent hover:ring-black/10 transition-all cursor-pointer"
+        >
           <img alt="User" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAlMU5SBJKrtSN61UwsWtGJGK_BHXm4Wih19J4il9IqwX7IKvxQA2-f7RYPofBIShrbD7jruzRzYFjKiQ-kANaQ18PgdmPPf_8Wi9p5hz-GpzPtMLe9Fd_GyF5llYHUpjFZMqVPG2AoW3nZj1OBWKBBU5TH6XJ2-IcsbI6NZocGwDfLFDSOZGi0mrhG19_0m8bydlaGAU7Jnc4xtaht9bvMUt7hi4-PoaxbCnGMyR-kJSAtt2QtkHaKOmSQItbmWBv6NRS2Uzbosb0" className="w-full h-full object-cover" />
         </div>
       </div>

@@ -3,7 +3,7 @@ import axios from 'axios'
 // Axios instance pointing at backend
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
-  timeout: 120000, // 2 min — large video uploads
+  timeout: 300000, // 5 min — large video uploads & URL processing
   headers: {
     'Accept': 'application/json',
   },
@@ -51,6 +51,16 @@ export async function analyzeMedia(file, onProgress) {
     },
   })
 
+  return data
+}
+
+/**
+ * Analyze a YouTube URL for deepfakes.
+ * @param {string} url
+ * @returns {Promise<AnalysisResult>}
+ */
+export async function analyzeUrl(url) {
+  const { data } = await api.post('/analyze/url', { url })
   return data
 }
 
@@ -135,6 +145,62 @@ export function mockAnalyze(file) {
         analyzed_at: new Date().toISOString(),
       })
     }, 2500 + Math.random() * 1000)
+  })
+}
+
+/**
+ * Mock URL analysis result.
+ */
+export function mockAnalyzeUrl(url) {
+  const isInstagram = url.includes('instagram.com') || url.includes('instagr.am');
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve({
+        id: `mock-url-${Date.now()}`,
+        filename: isInstagram ? "Instagram Reel Analysis" : "Dhurandhar The Revenge - AARI AARI | Ranveer Singh",
+        source_url: url,
+        trust_score: isInstagram ? 42 : 81,
+        risk_level: isInstagram ? "Medium" : "Low",
+        ai_generated: false,
+        explanation: isInstagram 
+          ? "Medium risk: Audio-visual desync detected in Instagram Reel. Possible shallowfake."
+          : "Trust score 81/100. No major manipulation signals. Content appears authentic.",
+        file_type: "video",
+        signals: {
+          video: {
+            score: isInstagram ? 0.45 : 0.1788,
+            ai_generated_score: 0.259,
+            manipulation_regions: [
+              {
+                timestamp: 12.5,
+                regions: [
+                  { x: 30, y: 40, w: 20, h: 20, confidence: 0.88 }
+                ]
+              }
+            ],
+            heatmap_url: "https://images.unsplash.com/photo-1633167606207-d840b5070fc2?auto=format&fit=crop&q=80&w=1000"
+          },
+          audio: {
+            score: isInstagram ? 0.55 : 0.2413,
+            tts_score: 0.1919,
+            duration: 30,
+            anomaly_segments: isInstagram ? [
+              { start: 5.0, end: 8.2, reason: "Acoustic mismatch", confidence: 0.72 }
+            ] : []
+          },
+          metadata: { score: 0.15 }
+        },
+        forensic_report: {
+            summary: isInstagram 
+              ? "Reel content shows signs of localized facial manipulation."
+              : "Content appears authentic with standard compression markers.",
+            provenance: [
+                { event: `Ingested from ${isInstagram ? 'Instagram' : 'YouTube'}`, detail: "Verified source.", risk: "low", timestamp: "T+0ms" }
+            ]
+        },
+        analyzed_at: new Date().toISOString()
+      })
+    }, 3000)
   })
 }
 
