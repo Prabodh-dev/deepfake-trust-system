@@ -106,8 +106,14 @@ def analyze_url():
 
     url = data['url'].strip()
 
-    if 'youtube.com' not in url and 'youtu.be' not in url:
-        return jsonify({"error": "Only YouTube URLs are supported"}), 400
+    # ← UPDATED: Instagram support added
+    if not any(domain in url for domain in [
+        'youtube.com', 'youtu.be',
+        'instagram.com', 'instagr.am'
+    ]):
+        return jsonify({
+            "error": "Only YouTube and Instagram URLs are supported"
+        }), 400
 
     unique_name = str(uuid.uuid4())
     filepath = os.path.join(config.UPLOAD_FOLDER, f"{unique_name}.mp4")
