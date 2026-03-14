@@ -7,9 +7,8 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        serif: ['Instrument Serif', 'Georgia', 'serif'],
-        display: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+        serif: ['Outfit', 'sans-serif'],
       },
       colors: {
         black: '#0d0d0d',
@@ -17,6 +16,7 @@ export default {
         primary: '#0d0d0d',
         'background-light': '#f4f4f2',
         'background-dark': '#0d0d0d',
+        'background-pro-blue': '#0a192f',
         gray: {
           100: '#f4f4f2',
           200: '#e8e8e4',
@@ -26,10 +26,14 @@ export default {
         yellow: {
           DEFAULT: '#e8f000',
           soft: '#f0f044',
-        }
+        },
+        'accent-cyan': '#00f5ff',
+        'accent-purple': '#a855f7',
+        'accent-red': '#ef4444',
+        'accent-green': '#10b981',
       },
       backgroundImage: {
-        'hero-gradient': 'linear-gradient(180deg, #c8d9ea 0%, #d4c9be 45%, #e8dbc8 100%)',
+        'hero-gradient': 'linear-gradient(180deg, #d3e5ff 0%, #ffffff 50%, #f7ebd7 100%)',
       },
       animation: {
         'fade-up': 'fadeUp 0.8s ease forwards',

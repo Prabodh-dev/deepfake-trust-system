@@ -1,0 +1,16 @@
+backend/uploads/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv/
+venv/
+*.pt
+*.pth
+node_modules/
+dist/
+.DS_Store
+*.db
+EOF
+README.md\nul
+frontend/nul
