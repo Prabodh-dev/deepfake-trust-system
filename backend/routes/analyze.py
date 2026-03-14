@@ -54,7 +54,7 @@ def analyze():
 
         ai_video_score  = video_result.get("ai_generated_score", 0.0)
         tts_audio_score = audio_result.get("tts_score", 0.0)
-        ai_generated    = bool(ai_video_score > 0.5 or tts_audio_score > 0.5)  # ← FIXED 0.6→0.5
+        ai_generated = bool(ai_video_score > 0.26 or tts_audio_score > 0.55)
 
         analysis_id = str(uuid.uuid4())
         result = {
@@ -158,7 +158,7 @@ def analyze_batch():
 
             ai_video_score  = video_result.get("ai_generated_score", 0.0)
             tts_audio_score = audio_result.get("tts_score", 0.0)
-            ai_generated    = bool(ai_video_score > 0.5 or tts_audio_score > 0.5)  # ← FIXED 0.6→0.5
+            ai_generated = bool(ai_video_score > 0.26 or tts_audio_score > 0.55)
 
             analysis_id = str(uuid.uuid4())
             result = {
