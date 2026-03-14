@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 import os, uuid
 from datetime import datetime, timezone
+import yt_dlp
 import backend.config as config
 from backend.utils.scoring import calculate_trust_score
 from backend.db.database import save_analysis, get_history, get_report, clear_history, get_stats
@@ -41,7 +42,7 @@ def analyze():
             "inconsistency_regions": False,
             "label": "N/A - Audio file",
             "ai_generated_score": 0.0,
-            "manipulation_regions": []        # ← ADDED
+            "manipulation_regions": []
         }
 
         audio_result    = analyze_audio(filepath)
@@ -51,7 +52,6 @@ def analyze():
         except Exception:
             metadata_result["provenance_chain"] = []
 
-        # Ensure anomaly_segments always present even if P2 hasn't pushed yet
         if "anomaly_segments" not in audio_result:
             audio_result["anomaly_segments"] = []
 
@@ -78,11 +78,10 @@ def analyze():
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
-        save_analysis(result)  # Save FIRST — heatmap_b64 still in DB
+        save_analysis(result)
 
-        # Strip heatmap from response, only expose URL if High/Medium Risk
         if result["signals"]["video"].get("heatmap_b64"):
-            if result["risk_level"] in ("High", "Medium"):   # ← Medium added for manipulation overlay
+            if result["risk_level"] in ("High", "Medium"):
                 result["signals"]["video"]["heatmap_url"] = f"/api/heatmap/{analysis_id}"
             del result["signals"]["video"]["heatmap_b64"]
 
@@ -92,6 +91,107 @@ def analyze():
 
     except Exception as e:
         print(f"[ERROR] File: {file.filename} | Error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+    finally:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+
+@analyze_bp.route('/analyze/url', methods=['POST'])
+def analyze_url():
+    data = request.get_json()
+    if not data or 'url' not in data:
+        return jsonify({"error": "No URL provided"}), 400
+
+    url = data['url'].strip()
+
+    if 'youtube.com' not in url and 'youtu.be' not in url:
+        return jsonify({"error": "Only YouTube URLs are supported"}), 400
+
+    unique_name = str(uuid.uuid4())
+    filepath = os.path.join(config.UPLOAD_FOLDER, f"{unique_name}.mp4")
+
+    print(f"[URL] Downloading: {url}")
+
+    try:
+        ydl_opts = {
+            'format': 'best[ext=mp4][filesize<200M]/best[ext=mp4]/best',
+            'outtmpl': filepath,
+            'quiet': True,
+            'no_warnings': True,
+            'socket_timeout': 30,
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            video_title = info.get('title', url)
+            duration    = info.get('duration', 0)
+
+        if duration > 300:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            return jsonify({
+                "error": f"Video too long ({duration}s). Max 5 minutes allowed."
+            }), 400
+
+        if not os.path.exists(filepath):
+            return jsonify({"error": "Download failed — file not found"}), 500
+
+        print(f"[URL] Downloaded: {video_title} | Size: {os.path.getsize(filepath)} bytes")
+
+        video_result    = detect_video(filepath)
+        audio_result    = analyze_audio(filepath)
+        metadata_result = extract_metadata(filepath)
+
+        try:
+            metadata_result["provenance_chain"] = build_provenance_chain(filepath)
+        except Exception:
+            metadata_result["provenance_chain"] = []
+
+        if "anomaly_segments" not in audio_result:
+            audio_result["anomaly_segments"] = []
+
+        score_data = calculate_trust_score(video_result, audio_result, metadata_result)
+
+        ai_video_score  = video_result.get("ai_generated_score", 0.0)
+        tts_audio_score = audio_result.get("tts_score", 0.0)
+        ai_generated    = bool(ai_video_score > 0.26 or tts_audio_score > 0.55)
+
+        analysis_id = str(uuid.uuid4())
+        result = {
+            "id":           analysis_id,
+            "filename":     video_title,
+            "file_type":    "video",
+            "source_url":   url,
+            "trust_score":  score_data["trust_score"],
+            "risk_level":   score_data["risk_level"],
+            "explanation":  score_data["explanation"],
+            "ai_generated": ai_generated,
+            "signals": {
+                "video":    video_result,
+                "audio":    audio_result,
+                "metadata": metadata_result
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
+        save_analysis(result)
+
+        if result["signals"]["video"].get("heatmap_b64"):
+            if result["risk_level"] in ("High", "Medium"):
+                result["signals"]["video"]["heatmap_url"] = f"/api/heatmap/{analysis_id}"
+            del result["signals"]["video"]["heatmap_b64"]
+
+        print(f"[URL] Done: {video_title} | Score: {result['trust_score']} | Risk: {result['risk_level']}")
+        return jsonify(result), 200
+
+    except yt_dlp.utils.DownloadError as e:
+        print(f"[URL ERROR] Download failed: {str(e)}")
+        return jsonify({"error": "Could not download video. Check URL or try another."}), 400
+
+    except Exception as e:
+        print(f"[URL ERROR] {str(e)}")
         return jsonify({"error": str(e)}), 500
 
     finally:
@@ -151,7 +251,7 @@ def analyze_batch():
                 "score": 0.5, "frames_analyzed": 0,
                 "inconsistency_regions": False, "label": "N/A - Audio file",
                 "ai_generated_score": 0.0,
-                "manipulation_regions": []    # ← ADDED
+                "manipulation_regions": []
             }
             audio_result    = analyze_audio(filepath)
             metadata_result = extract_metadata(filepath)
@@ -160,7 +260,6 @@ def analyze_batch():
             except Exception:
                 metadata_result["provenance_chain"] = []
 
-            # Ensure anomaly_segments always present
             if "anomaly_segments" not in audio_result:
                 audio_result["anomaly_segments"] = []
 
@@ -187,9 +286,8 @@ def analyze_batch():
                 "timestamp": datetime.now(timezone.utc).isoformat()
             }
 
-            save_analysis(result)  # Save FIRST — heatmap_b64 still in DB
+            save_analysis(result)
 
-            # Strip heatmap from response, only expose URL if High/Medium Risk
             if result["signals"]["video"].get("heatmap_b64"):
                 if result["risk_level"] in ("High", "Medium"):
                     result["signals"]["video"]["heatmap_url"] = f"/api/heatmap/{analysis_id}"

@@ -11,3 +11,4 @@ opencv-python
 Pillow
 librosa
 soundfile
+yt-dlp
