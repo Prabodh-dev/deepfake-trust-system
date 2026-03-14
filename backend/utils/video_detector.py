@@ -27,20 +27,50 @@ torch_model.eval()
 
 def detect_ai_generated_frame(frame_bgr):
     """
-    DCT frequency analysis.
-    Real camera frames have natural high-frequency sensor noise.
-    AI-generated frames are suspiciously smooth.
+    3-signal AI generation detection per frame:
+    1. DCT frequency — AI frames lack high-freq sensor noise
+    2. Noise floor — AI frames too clean after gaussian blur subtraction
+    3. Color channel correlation — AI frames have unnaturally high R/G/B correlation
+    Weights: 0.4*dct + 0.4*noise + 0.2*color
     Returns: float 0-1, where 1 = likely AI-generated
     """
     try:
         gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
-        gray = cv2.resize(gray, (256, 256))
-        dct_coeff = dct(dct(gray.T, norm='ortho').T, norm='ortho')
+        gray_resized = cv2.resize(gray, (256, 256))
+
+        # Signal 1 — DCT frequency analysis
+        dct_coeff = dct(dct(gray_resized.T, norm='ortho').T, norm='ortho')
         h, w = dct_coeff.shape
         hf_energy = np.sum(np.abs(dct_coeff[h//2:, w//2:]))
         lf_energy = np.sum(np.abs(dct_coeff[:h//2, :w//2])) + 1e-8
         hf_lf_ratio = hf_energy / lf_energy
-        return float(1.0 - np.clip(hf_lf_ratio / 0.10, 0, 1))
+        dct_score = float(1.0 - np.clip(hf_lf_ratio / 0.10, 0, 1))
+
+        # Signal 2 — Noise floor check
+        # Real cameras std > 5, AI frames std < 3
+        blurred = cv2.GaussianBlur(gray_resized, (5, 5), 0)
+        residual = gray_resized - blurred
+        noise_std = float(np.std(residual))
+        # Low std = too clean = AI generated
+        noise_score = float(1.0 - np.clip(noise_std / 5.0, 0, 1))
+
+        # Signal 3 — Color channel correlation
+        # AI frames: R/G/B unnaturally correlated > 0.98
+        # Real cameras: slight independent noise per channel
+        b, g, r = cv2.split(frame_bgr.astype(np.float32))
+        b_small = cv2.resize(b, (64, 64)).flatten()
+        g_small = cv2.resize(g, (64, 64)).flatten()
+        r_small = cv2.resize(r, (64, 64)).flatten()
+        rg_corr = float(np.corrcoef(r_small, g_small)[0, 1])
+        rb_corr = float(np.corrcoef(r_small, b_small)[0, 1])
+        avg_corr = (rg_corr + rb_corr) / 2.0
+        # High correlation = AI generated
+        color_score = float(np.clip((avg_corr - 0.90) / 0.10, 0, 1))
+
+        # Combined score
+        combined = (0.4 * dct_score) + (0.4 * noise_score) + (0.2 * color_score)
+        return float(np.clip(combined, 0, 1))
+
     except Exception:
         return 0.5
 
@@ -68,8 +98,8 @@ def detect_temporal_flicker(video_path, num_frames=15):
 
 def compute_ai_generated_score(video_path, frame_dct_scores):
     """
-    Combine DCT + temporal flicker scores.
-    Weights: flicker 0.8, DCT 0.2 (flicker is stronger signal).
+    Combine per-frame scores + temporal flicker.
+    Weights: flicker 0.8, frame scores 0.2
     Calibrated threshold: 0.65 (real ~0.54, AI ~0.75+)
     """
     flicker = detect_temporal_flicker(video_path)
