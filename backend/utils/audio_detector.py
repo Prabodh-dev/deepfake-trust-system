@@ -228,6 +228,88 @@ def _get_compression_chain(filepath: str) -> int:
         return 0
 
 
+def get_anomaly_segments(y: np.ndarray, sr: int) -> list:
+    """
+    Split audio into 2-second windows and return only the suspicious ones.
+
+    Each window is scored using MFCC variance and spectral flatness — the
+    two most reliable per-frame signals. Windows scoring above 0.4 are
+    returned with a human-readable reason identifying which signal triggered.
+
+    This is called inside analyze_audio() only when overall score > 0.3,
+    so it never runs on clearly real audio.
+
+    Parameters
+    ----------
+    y  : np.ndarray  mono audio samples at *sr* Hz
+    sr : int         sample rate (expected 16 000 Hz)
+
+    Returns
+    -------
+    list[dict]  — suspicious windows only, ordered chronologically:
+        start_sec  float  — window start in seconds
+        end_sec    float  — window end in seconds
+        score      float  — anomaly score for this window [0, 1]
+        reason     str    — which signal triggered the flag
+
+    Returns [] on any failure — never raises.
+    """
+    try:
+        window_samples = sr * 2          # 2 seconds at 16 kHz = 32 000 samples
+        total_samples  = len(y)
+        segments       = []
+
+        if total_samples < window_samples:
+            return []
+
+        num_windows = total_samples // window_samples
+
+        for i in range(num_windows):
+            start  = i * window_samples
+            end    = start + window_samples
+            window = y[start:end]
+
+            start_sec = round(float(start) / sr, 2)
+            end_sec   = round(float(end)   / sr, 2)
+
+            # ── MFCC variance sub-score ───────────────────────────────── #
+            mfcc         = librosa.feature.mfcc(y=window, sr=sr, n_mfcc=20)
+            mean_mfcc_std = float(np.mean(np.std(mfcc, axis=1)))
+            MFCC_STD_THRESHOLD = 4.0
+            mfcc_sub = float(np.clip(
+                1.0 - (mean_mfcc_std / (MFCC_STD_THRESHOLD * 2)),
+                0.0, 1.0,
+            ))
+
+            # ── Spectral flatness sub-score ───────────────────────────── #
+            flatness      = librosa.feature.spectral_flatness(y=window)
+            mean_flatness = float(np.mean(flatness))
+            FLATNESS_THRESHOLD = 0.4
+            flatness_sub  = float(np.clip(mean_flatness / FLATNESS_THRESHOLD, 0.0, 1.0))
+
+            # ── Window score — equal blend of both signals ────────────── #
+            window_score = round(0.50 * flatness_sub + 0.50 * mfcc_sub, 4)
+
+            if window_score > 0.4:
+                # Determine which signal was the primary trigger
+                if flatness_sub >= mfcc_sub:
+                    reason = "spectral flatness spike"
+                else:
+                    reason = "low MFCC variance"
+
+                segments.append({
+                    "start_sec": start_sec,
+                    "end_sec":   end_sec,
+                    "score":     window_score,
+                    "reason":    reason,
+                })
+
+        return segments
+
+    except Exception:
+        return []
+
+
 def analyze_audio(filepath: str) -> dict:
     """
     Analyse an audio (or video) file for AI-synthesis anomalies.
@@ -267,6 +349,7 @@ def analyze_audio(filepath: str) -> dict:
         "gan_score": 0.0,
         "tts_score": 0.0,
         "compression_chain": 0,
+        "anomaly_segments": [],
         "label": "uncertain",
     }
 
@@ -405,7 +488,7 @@ def analyze_audio(filepath: str) -> dict:
         score = round(min(max(score, 0.0), 1.0), 4)
 
         # ------------------------------------------------------------------ #
-        # 9. Human-readable label                                             #
+        # 10. Human-readable label                                            #
         # ------------------------------------------------------------------ #
         if score < 0.35:
             label = "likely_real"
@@ -414,6 +497,13 @@ def analyze_audio(filepath: str) -> dict:
         else:
             label = "likely_synthetic"
 
+        # ------------------------------------------------------------------ #
+        # 11. Anomaly segments — only when overall score is suspicious        #
+        # Splits audio into 2-second windows and returns flagged segments.    #
+        # Skipped on clearly real audio to save compute.                      #
+        # ------------------------------------------------------------------ #
+        anomaly_segments = get_anomaly_segments(y, sr) if score > 0.3 else []
+
         return {
             "score": score,
             "mfcc_anomaly": mfcc_anomaly,
@@ -421,6 +511,7 @@ def analyze_audio(filepath: str) -> dict:
             "gan_score": gan_score,
             "tts_score": tts_score,
             "compression_chain": compression_chain,
+            "anomaly_segments": anomaly_segments,
             "label": label,
         }
 
