@@ -7,7 +7,9 @@
   <meta name="description" content="Track impact, reduce emissions, and accelerate progress—with clarity and confidence." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -23,14 +25,16 @@
       --gray-600: #6b6b64;
       --yellow: #e8f000;
       --yellow-soft: #f0f044;
-      --font-serif: 'Instrument Serif', Georgia, serif;
-      --font-sans: 'Inter', system-ui, sans-serif;
+      --font-heading: 'Outfit', sans-serif;
+      --font-body: 'Inter', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      --font-serif: 'Outfit', sans-serif; /* For backward compatibility with existing classes */
     }
 
     html { font-size: 16px; scroll-behavior: smooth; }
 
     body {
-      font-family: var(--font-sans);
+      font-family: var(--font-body);
       background: var(--white);
       color: var(--black);
       overflow-x: hidden;
@@ -112,9 +116,9 @@
     }
 
     .hero-eyebrow {
-      font-size: 0.8rem;
+      font-size: 1rem;
       font-weight: 500;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
       color: var(--gray-600);
       margin-bottom: 24px;
@@ -405,9 +409,9 @@
     section { padding: 100px 48px; }
 
     .section-label {
-      font-size: 0.78rem;
-      font-weight: 500;
-      letter-spacing: 0.08em;
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
       color: var(--gray-400);
       margin-bottom: 48px;
@@ -452,9 +456,9 @@
     .feature-item:hover { background: var(--gray-100); }
 
     .feature-num {
-      font-size: 0.7rem;
+      font-size: 0.95rem;
       color: var(--gray-400);
-      font-weight: 500;
+      font-weight: 600;
       letter-spacing: 0.05em;
       display: block;
       margin-bottom: 16px;
@@ -462,14 +466,14 @@
 
     .feature-name {
       font-family: var(--font-serif);
-      font-size: 1.4rem;
+      font-size: 1.8rem;
       font-weight: 400;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
       color: var(--black);
     }
 
     .feature-desc {
-      font-size: 0.83rem;
+      font-size: 1.1rem;
       color: var(--gray-600);
       line-height: 1.6;
     }
@@ -491,7 +495,11 @@
       margin-top: 64px;
     }
 
-    .value-item {}
+    .value-item {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
     .value-title {
       font-family: var(--font-serif);
       font-size: 1.5rem;
@@ -500,7 +508,7 @@
       margin-bottom: 12px;
     }
     .value-desc {
-      font-size: 0.875rem;
+      font-size: 1.1rem;
       color: var(--gray-600);
       line-height: 1.7;
     }
@@ -523,8 +531,8 @@
     }
 
     .case-eyebrow {
-      font-size: 0.78rem;
-      font-weight: 500;
+      font-size: 1rem;
+      font-weight: 600;
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: var(--gray-400);
@@ -641,7 +649,7 @@
 
     .article-body { padding: 20px; }
     .article-tag {
-      font-size: 0.7rem;
+      font-size: 0.95rem;
       font-weight: 600;
       letter-spacing: 0.06em;
       text-transform: uppercase;

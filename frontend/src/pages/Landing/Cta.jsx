@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom';
+
 export default function Cta() {
   return (
     <section className="bg-gray-100 border-t border-gray-200 text-center px-6 md:px-12 py-16 md:py-24">
@@ -6,7 +8,7 @@ export default function Cta() {
         media trust pipeline?
       </h2>
       <div className="reveal">
-        <a href="#" className="btn-primary">Request a demo</a>
+        <Link to="/dashboard" className="btn-primary">Go to Dashboard</Link>
       </div>
     </section>
   )

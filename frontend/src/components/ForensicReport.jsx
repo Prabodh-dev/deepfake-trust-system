@@ -1,128 +1,208 @@
-import { motion } from 'framer-motion'
-import {
-  FileSearch, Lock, Shield,
-  Layers, Clock, ChevronRight, AlertTriangle,
-} from 'lucide-react'
+import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import AnomalyGallery from './AnomalyGallery';
+import AudioTimeline from './AudioTimeline';
+import ManipulationOverlay from './ManipulationOverlay';
+import { MapPin, AudioWaveform, CheckCircle2, ChevronDown } from 'lucide-react';
 
-const PROVENANCE_CONFIG = {
-  STRONG:   { color: '#22c55e', label: 'Strong', bar: 'w-full' },
-  MODERATE: { color: '#f59e0b', label: 'Moderate', bar: 'w-2/3' },
-  WEAK:     { color: '#ef4444', label: 'Weak', bar: 'w-1/3' },
-}
+export default function ForensicReport({ explanation, provenance, isAiGenerated, signals, riskLevel, onSeek }) {
+  const [isBreakdownExpanded, setIsBreakdownExpanded] = useState(true);
+  const [isLocationExpanded, setIsLocationExpanded] = useState(true);
+  
+  const videoRegions = signals?.video?.manipulation_regions || [];
+  const audioSegments = signals?.audio?.anomaly_segments || [];
+  const heatmapUrl = signals?.video?.heatmap_url;
 
-function InfoRow({ icon: Icon, label, value, highlight }) {
-  return (
-    <div className="flex items-center gap-3 py-2.5 border-b border-white/5 last:border-0">
-      <Icon className="w-4 h-4 text-white/30 flex-shrink-0" />
-      <span className="text-sm text-white/50 flex-1">{label}</span>
-      <span
-        className="text-sm font-medium font-mono"
-        style={{ color: highlight ?? 'rgba(255,255,255,0.8)' }}
-      >
-        {value}
-      </span>
-    </div>
-  )
-}
+  const hasPhysicalAnomalies = videoRegions.length > 0 || audioSegments.length > 0;
 
-export default function ForensicReport({ report, filename, fileSize, fileType, analyzedAt }) {
-  if (!report) return null
-
-  const prov = PROVENANCE_CONFIG[report.provenance_strength] ?? PROVENANCE_CONFIG['MODERATE']
-  const hasMarkers = report.manipulation_markers?.length > 0
-
-  const displayDate = analyzedAt
-    ? new Date(analyzedAt).toLocaleString('en-IN', {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      })
-    : '—'
+  // Highlighting key phrases in amber color
+  const highlightExplanation = (text) => {
+    if (!text) return null;
+    const keywords = [
+      'deepfake', 'synthetic', 'manipulated', 'high-risk', 'anomaly', 
+      'inconsistent', 'gan', 'synthesized', 'artifact', 'authenticity',
+      'spectral gaps', 'temporal inconsistency', 'mesh mismatch'
+    ];
+    let highlighted = text;
+    keywords.forEach(word => {
+      const regex = new RegExp(`(${word})`, 'gi');
+      highlighted = highlighted.replace(regex, '<span class="text-amber-500 font-bold">$1</span>');
+    });
+    return <p className="text-gray-600 leading-relaxed font-serif italic text-lg" dangerouslySetInnerHTML={{ __html: highlighted }} />;
+  };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay: 0.1 }}
-      className="rounded-2xl glass overflow-hidden"
-    >
-      {/* Header */}
-      <div className="px-5 py-4 border-b border-white/8 flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-accent-purple/15 flex items-center justify-center glow-purple">
-          <FileSearch className="w-5 h-5 text-accent-purple" />
-        </div>
-        <div>
-          <p className="font-semibold text-white text-sm">Forensic Report</p>
-          <p className="text-xs text-white/35 mt-0.5 font-mono truncate max-w-[200px]">{filename}</p>
-        </div>
-      </div>
-
-      {/* Summary */}
-      <div className="px-5 py-4 border-b border-white/8">
-        <p className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Analysis Summary</p>
-        <p className="text-sm text-white/75 leading-relaxed">{report.summary}</p>
-      </div>
-
-      {/* Metadata rows */}
-      <div className="px-5 py-3 border-b border-white/8">
-        <InfoRow icon={Clock}  label="Analyzed at"         value={displayDate} />
-        <InfoRow icon={Layers} label="Compression events"  value={report.compression_history} />
-        <InfoRow icon={Lock}   label="File size"           value={fileSize ? `${(fileSize / (1024*1024)).toFixed(1)} MB` : '—'} />
-        <InfoRow icon={Shield} label="Format"              value={fileType ?? '—'} />
-      </div>
-
-      {/* Provenance strength */}
-      <div className="px-5 py-4 border-b border-white/8">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-xs font-medium text-white/40 uppercase tracking-wider">Provenance Strength</p>
-          <span className="text-xs font-semibold" style={{ color: prov.color }}>{prov.label}</span>
-        </div>
-        <div className="h-1.5 bg-white/8 rounded-full overflow-hidden">
-          <motion.div
-            className="h-full rounded-full"
-            style={{ background: prov.color, boxShadow: `0 0 8px ${prov.color}` }}
-            initial={{ width: '0%' }}
-            animate={{ width: prov.bar.replace('w-', '').replace('full', '100%').replace('2/3', '66%').replace('1/3', '33%') }}
-            transition={{ duration: 0.8, ease: 'easeOut', delay: 0.3 }}
-          />
-        </div>
-      </div>
-
-      {/* Manipulation markers */}
-      {hasMarkers && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.4 }}
-          className="px-5 py-4"
+    <div className="space-y-6">
+      {/* 1. Forensic Breakdown Collapsible */}
+      <div className="bg-white/60 backdrop-blur-xl border border-white/40 rounded-[2.5rem] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-black/5 transition-all">
+        <div 
+          className="px-8 py-6 flex items-center justify-between cursor-pointer bg-gray-50/50"
+          onClick={() => setIsBreakdownExpanded(!isBreakdownExpanded)}
         >
-          <div className="flex items-center gap-2 mb-3">
-            <AlertTriangle className="w-4 h-4 text-accent-red" />
-            <p className="text-xs font-medium text-accent-red uppercase tracking-wider">
-              Manipulation Markers Detected
-            </p>
+          <div className="flex items-center gap-3">
+            <span className="material-symbols-outlined text-amber-500">biotech</span>
+            <h3 className="text-[0.75rem] font-bold uppercase tracking-[0.2em] text-black">Forensic Breakdown</h3>
           </div>
-          <ul className="space-y-2">
-            {report.manipulation_markers.map((marker, i) => (
-              <motion.li
-                key={i}
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.45 + i * 0.08 }}
-                className="flex items-center gap-2 text-sm text-white/65"
-              >
-                <ChevronRight className="w-3.5 h-3.5 text-accent-red/60 flex-shrink-0" />
-                {marker}
-              </motion.li>
-            ))}
-          </ul>
-        </motion.div>
-      )}
-
-      {!hasMarkers && (
-        <div className="px-5 py-4">
-          <p className="text-xs text-white/30 text-center">No manipulation markers detected</p>
+          <ChevronDown className={`w-5 h-5 transition-transform duration-300 ${isBreakdownExpanded ? 'rotate-180' : ''}`} />
         </div>
-      )}
-    </motion.div>
-  )
+
+        <AnimatePresence>
+          {isBreakdownExpanded && (
+            <motion.div 
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="p-10 space-y-14 border-t border-gray-50/50">
+                {/* Explanation Section */}
+                <section>
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="size-1.5 bg-amber-500 rounded-full" />
+                    <h4 className="text-[0.65rem] font-bold text-gray-400 uppercase tracking-widest">Neural Consensus Explanation</h4>
+                  </div>
+                  {isAiGenerated && (
+                    <motion.div 
+                      initial={{ scale: 0.95, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      className="mb-8 p-6 bg-purple-50/50 border border-purple-100 rounded-2xl flex items-start gap-4"
+                    >
+                      <div className="size-10 rounded-xl bg-purple-100 flex items-center justify-center text-purple-600 shrink-0">
+                        <span className="material-symbols-outlined">auto_awesome</span>
+                      </div>
+                      <div>
+                        <h5 className="text-[0.8rem] font-bold text-purple-900 uppercase tracking-wider mb-1">Synthetically Autogenerated Content</h5>
+                        <p className="text-[0.85rem] text-purple-700 leading-relaxed font-medium">
+                          This content appears to be fully AI-generated, not manipulated from real footage. High confidence markers for neural synthesis detected.
+                        </p>
+                      </div>
+                    </motion.div>
+                  )}
+                  {highlightExplanation(explanation || "Analysis pending detailed report generation.")}
+                </section>
+
+                {/* Provenance Timeline Section */}
+                <section>
+                  <div className="flex items-center gap-3 mb-10">
+                    <span className="size-1.5 bg-gray-300 rounded-full" />
+                    <h4 className="text-[0.7rem] font-bold text-gray-400 uppercase tracking-[0.2em]">Provenance Timeline</h4>
+                  </div>
+                  
+                  <div className="relative pl-10 space-y-10 before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[1px] before:bg-gray-100">
+                    {(provenance && provenance.length > 0 ? provenance : [
+                      { label: 'Asset Ingestion', detail: 'File received and staged for forensic evaluation.', risk: 'low', timestamp: 'T+0ms' },
+                      { label: 'Neural Scan', detail: 'Face mesh and spectral stability checks initiated.', risk: 'medium', timestamp: 'T+400ms' },
+                      { label: 'Consensus Reached', detail: 'Multi-model verification complete.', risk: 'low', timestamp: 'T+1200ms' }
+                    ]).map((event, i) => (
+                      <div key={i} className="relative group">
+                        <motion.div 
+                          initial={{ scale: 0 }}
+                          animate={{ scale: 1 }}
+                          transition={{ delay: 0.1 * i }}
+                          className={`absolute -left-[32px] top-1 size-[24px] rounded-full border-4 border-white shadow-md ring-1 ring-black/5 ${
+                            event.risk === 'high' ? 'bg-red-500' : 
+                            event.risk === 'medium' ? 'bg-amber-500' : 
+                            'bg-emerald-500'
+                          }`} 
+                        />
+                        <div className="flex flex-col gap-1 group-hover:translate-x-1 transition-transform">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[1rem] font-bold text-black font-serif">{event.label}</span>
+                            <span className="text-[0.7rem] font-mono text-gray-300 font-bold">{event.timestamp}</span>
+                          </div>
+                          <p className="text-[0.85rem] text-gray-500 leading-relaxed max-w-xl">{event.detail}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* 2. "Where is it happening?" Collapsible */}
+      <div className="bg-white/60 backdrop-blur-xl border border-white/40 rounded-[2.5rem] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-black/5 transition-all">
+        <div 
+          className="px-8 py-6 flex items-center justify-between cursor-pointer bg-gray-50/50"
+          onClick={() => setIsLocationExpanded(!isLocationExpanded)}
+        >
+          <div className="flex items-center gap-3">
+            <span className="material-symbols-outlined text-red-500">map</span>
+            <h3 className="text-[0.75rem] font-bold uppercase tracking-[0.2em] text-black">Where is it happening?</h3>
+          </div>
+          <ChevronDown className={`w-5 h-5 transition-transform duration-300 ${isLocationExpanded ? 'rotate-180' : ''}`} />
+        </div>
+
+        <AnimatePresence>
+          {isLocationExpanded && (
+            <motion.div 
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="p-10 space-y-12 border-t border-gray-50/50">
+                {!hasPhysicalAnomalies ? (
+                  <div className="flex flex-col items-center justify-center py-10 text-center gap-4">
+                    <div className="size-16 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-500">
+                      <CheckCircle2 className="w-8 h-8" />
+                    </div>
+                    <div>
+                      <h5 className="text-[0.8rem] font-bold text-emerald-900 uppercase tracking-widest">No localized anomalies found</h5>
+                      <p className="text-[0.75rem] text-emerald-600 mt-1">Media analysis shows no significant spatial or temporal deviations.</p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* Visual Manipulation Overlay */}
+                    {(riskLevel === 'High' || riskLevel === 'Medium') && heatmapUrl && (
+                      <section className="space-y-6">
+                        <div className="flex items-center gap-2">
+                          <MapPin className="w-4 h-4 text-red-500" />
+                          <h4 className="text-[0.65rem] font-bold text-gray-400 uppercase tracking-widest font-mono">Heatmap Overlays</h4>
+                        </div>
+                        <ManipulationOverlay 
+                          image={heatmapUrl} 
+                          regions={videoRegions.flatMap(vr => vr.regions)} 
+                          riskLevel={riskLevel}
+                        />
+                      </section>
+                    )}
+
+                    {/* Detection Nodes (Frames of Interest) */}
+                    {videoRegions.length > 0 && (
+                      <section className="space-y-6">
+                        <div className="flex items-center gap-2">
+                          <span className="material-symbols-outlined text-red-500 text-[18px]">center_focus_weak</span>
+                          <h4 className="text-[0.65rem] font-bold text-gray-400 uppercase tracking-widest font-mono">Forensic Frames of Interest</h4>
+                        </div>
+                        <AnomalyGallery 
+                          manipulationRegions={videoRegions} 
+                          onSeek={onSeek}
+                        />
+                      </section>
+                    )}
+
+                    {/* Audio Timeline */}
+                    <section className="space-y-6">
+                      <div className="flex items-center gap-2">
+                        <AudioWaveform className="w-4 h-4 text-red-500" />
+                        <h4 className="text-[0.65rem] font-bold text-gray-400 uppercase tracking-widest font-mono">Acoustic Timeline</h4>
+                      </div>
+                      <AudioTimeline 
+                        segments={audioSegments} 
+                        duration={signals?.audio?.duration || 60} 
+                      />
+                    </section>
+                  </>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
 }
